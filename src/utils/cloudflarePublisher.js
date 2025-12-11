@@ -3,16 +3,15 @@ import fetch from "node-fetch";
 export async function publishToCloudflareKV(subdomain, html) {
   const CF_API_TOKEN = process.env.CF_API_TOKEN;
   const CF_ACCOUNT_ID = process.env.CF_ACCOUNT_ID;
-  const CF_KV_NAMESPACE = process.env.CF_KV_NAMESPACE; // ✅ Correct key name
-
+  const CF_KV_NAMESPACE_ID = process.env.CF_KV_NAMESPACE_ID; // ✅ Correct key name
   // -------------------------------
   // VALIDATE ENV VARIABLES
   // -------------------------------
-  if (!CF_API_TOKEN || !CF_ACCOUNT_ID || !CF_KV_NAMESPACE) {
+  if (!CF_API_TOKEN || !CF_ACCOUNT_ID || !CF_KV_NAMESPACE_ID) {
     console.error("❌ ENV Values:", {
       CF_API_TOKEN,
       CF_ACCOUNT_ID,
-      CF_KV_NAMESPACE,
+      CF_KV_NAMESPACE_ID,
     });
 
     throw new Error("Missing Cloudflare environment values");
@@ -23,7 +22,7 @@ export async function publishToCloudflareKV(subdomain, html) {
   // key = subdomain/index.html
   const key = `${subdomain}/index.html`;
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE}/values/${encodeURIComponent(
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${encodeURIComponent(
     key
   )}`;
 
