@@ -19,7 +19,7 @@ const leadSchema = new mongoose.Schema({
   lat: Number,
   lng: Number,
 
-  images: [String],            // only plain image URLs here
+  images: [String],
   thumbnail: String,
   static_map: String,
 
@@ -39,14 +39,19 @@ const leadSchema = new mongoose.Schema({
   instagram_exact: { type: String, default: "" },
   instagram_suggestions: { type: [String], default: [] },
 
-  /* --- NEW WEBSITE FIELDS --- */
+  /* NEW — GOOGLE RANK TRACKING */
+  google_rank_position: { type: Number, default: null },
+  google_rank_results: { type: Array, default: [] },
+  google_rank_top_competitors: { type: Array, default: [] },
+  google_rank_keyword: { type: String, default: "" },
+
+  /* WEBSITE BUILDER */
   web_url: { type: String, default: "" },
   template_used: { type: String, default: "template1" },
   last_published: { type: Date },
   subdomain: { type: String, default: "" },
   published_template: { type: String, default: "" },
 
-  /* store any AI / generated image objects separately */
   generated_images: { type: [mongoose.Schema.Types.Mixed], default: [] },
 
   createdAt: { type: Date, default: Date.now },

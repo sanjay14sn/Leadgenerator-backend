@@ -3,8 +3,6 @@ import Lead from "../models/Lead.js";
 import { generateCSV } from "../utils/csvExporter.js";
 import { findInstagram } from "../utils/instagramFinder.js";
 
-
-
 /* ----------------------------------------------------
    WHATSAPP CHECKER (Google Redirect Check)
 ---------------------------------------------------- */
@@ -92,7 +90,6 @@ export const scrapeLeads = async (req, res) => {
 
     const leads = [];
     const seenPhones = new Set();
-
     for (const i of results) {
       const phone = i.phone || "";
       if (!phone || seenPhones.has(phone)) continue;
@@ -101,7 +98,8 @@ export const scrapeLeads = async (req, res) => {
       const hasWhatsapp = await checkWhatsApp(phone);
 
       let jdWhatsapp = { found: false, number: "" };
-      if (!hasWhatsapp) jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
+      if (!hasWhatsapp)
+        jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
 
       const images = i.photos?.map((p) => p.src) || [];
       const thumbnail = i.thumbnail || images[0] || "";
@@ -119,6 +117,31 @@ export const scrapeLeads = async (req, res) => {
         });
       } catch (err) {
         console.log("Instagram AI error:", err.message);
+      }
+
+      /* ---------------- GOOGLE RANK TRACKING ---------------- */
+      let googleRankPosition = null;
+      let googleRankResults = [];
+      let googleTopCompetitors = [];
+
+      try {
+        const searchKeyword = `${i.title} ${location}`;
+        const rankUrl = `https://www.searchapi.io/api/v1/search?engine=google_rank_tracking&q=${encodeURIComponent(
+          searchKeyword
+        )}&api_key=${process.env.SERP_API}`;
+
+        const rankRes = await fetch(rankUrl);
+        const rankJson = await rankRes.json();
+
+        const organic = rankJson.organic_results || [];
+
+        if (organic.length > 0) {
+          googleRankPosition = organic[0].position || null;
+          googleRankResults = organic;
+          googleTopCompetitors = organic.slice(0, 5);
+        }
+      } catch (err) {
+        console.log("Rank tracking error:", err.message);
       }
 
       const lead = {
@@ -139,10 +162,9 @@ export const scrapeLeads = async (req, res) => {
         lat: i.gps_coordinates?.latitude || null,
         lng: i.gps_coordinates?.longitude || null,
 
-        static_map:
-          i.gps_coordinates
-            ? `https://maps.googleapis.com/maps/api/staticmap?center=${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}&zoom=15&size=600x300&markers=color:red|${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}`
-            : "",
+        static_map: i.gps_coordinates
+          ? `https://maps.googleapis.com/maps/api/staticmap?center=${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}&zoom=15&size=600x300&markers=color:red|${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}`
+          : "",
 
         images,
         thumbnail,
@@ -157,8 +179,16 @@ export const scrapeLeads = async (req, res) => {
         jd_whatsapp_number: jdWhatsapp.number,
 
         keyword,
+
         instagram_exact: aiIG.exact || "",
         instagram_suggestions: aiIG.suggestions || [],
+
+        /* NEW RANKING FIELDS */
+        google_rank_position: googleRankPosition,
+        google_rank_results: googleRankResults,
+        google_rank_top_competitors: googleTopCompetitors,
+        google_rank_keyword: `${i.title} ${location}`,
+
         lead_score: 0,
       };
 
