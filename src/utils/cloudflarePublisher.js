@@ -11,9 +11,16 @@ export async function publishToCloudflareKV(subdomain, html) {
 
   console.log("🚀 Uploading to Cloudflare KV:", subdomain);
 
-  const key = `${subdomain}/index.html`;
+  // ✅ FIX — save using ONLY subdomain
+  const key = subdomain;
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${encodeURIComponent(key)}`;
+  console.log("📦 KV Key Used:", key);
+
+  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${encodeURIComponent(
+    key
+  )}`;
+
+  console.log("🌍 Upload URL:", url);
 
   const response = await fetch(url, {
     method: "PUT",
@@ -25,11 +32,12 @@ export async function publishToCloudflareKV(subdomain, html) {
   });
 
   const raw = await response.text();
+  console.log("📨 Cloudflare Response:", raw);
+
   if (!response.ok) {
-    console.log("❌ Cloudflare KV Error:", raw);
     throw new Error("KV Upload failed: " + raw);
   }
 
-  console.log("✅ Cloudflare KV Upload Success");
+  console.log("✅ Cloudflare KV Upload Success!");
   return `https://${subdomain}.iqsync.in`;
 }
