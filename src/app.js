@@ -9,43 +9,34 @@ import deployRoutes from "./routes/deployRoutes.js";
 
 const app = express();
 
-/* -----------------------------------------
-   ⭐ FIXED CORS FOR FRONTEND + WORKER
------------------------------------------- */
-app.use(cors({
-  origin: "*",              // allow all domains
-  methods: "GET,POST,PATCH,PUT,DELETE",
-  allowedHeaders: "Content-Type, Authorization"
-}));
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
 
 app.use(express.json());
-
-/* -----------------------------------------
-   ROUTES
------------------------------------------- */
 
 // Instagram
 app.use("/api/instagram", instagramRoutes);
 
-// AI Enhance
+// AI
 app.use("/api/ai", aiRoutes);
 
-// Leads CRUD
+// Leads
 app.use("/api/leads", leadRoutes);
 
-// ⭐ Publish Website
+// NEW — Deployment
 app.use("/api/deploy", deployRoutes);
 
-/* -----------------------------------------
-   HEALTH CHECK
------------------------------------------- */
+// Health check
 app.get("/", (req, res) => {
   res.json({ status: "OK", message: "Lead Generator Backend Running 🚀" });
 });
 
-/* -----------------------------------------
-   ERROR HANDLER
------------------------------------------- */
+// Global error handler
 app.use((err, req, res, next) => {
   console.error("🔥 SERVER ERROR:", err);
   res.status(500).json({
