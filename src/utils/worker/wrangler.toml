@@ -1,0 +1,11 @@
+name = "publisher-router"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+
+kv_namespaces = [
+  { binding = "SITES", id = "1973e0bce276402982b0a3fe5930eb60" }
+]
+
+routes = [
+  { pattern = "*.iqsync.in/*", zone_name = "iqsync.in" }
+]

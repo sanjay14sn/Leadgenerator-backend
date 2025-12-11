@@ -1,7 +1,10 @@
+// --------------------------------------
+// LOAD ENV FIRST (IMPORTANT)
+// --------------------------------------
 import dotenv from "dotenv";
 dotenv.config();
 
-// correct paths
+// --------------------------------------
 import app from "./src/app.js";
 import connectDB from "./src/config/db.js";
 import { startInstagramCron } from "./src/cron/instagramCron.js";
