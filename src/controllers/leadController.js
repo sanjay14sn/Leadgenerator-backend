@@ -162,6 +162,27 @@ export const updateFollowupStatus = async (req, res) => {
   }
 };
 
+// PRO MAX Fetch Wrapper (Retries + Timeout + Proxy Safe)
+async function safeFetch(url, retries = 3) {
+  for (let i = 0; i < retries; i++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 15000); // 15 sec timeout
+
+      const res = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return await res.json();
+    } catch (err) {
+      console.log(`🔁 Fetch Retry ${i + 1}/${retries} failed → ${err.message}`);
+      if (i === retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+  }
+}
+
+
 /* ----------------------------------------------------
    NEW: SIMPLE LEAD DATA UPDATE (For Notes/Basic Fields)
 ---------------------------------------------------- */
@@ -275,12 +296,18 @@ export const scrapeLeads = async (req, res) => {
   try {
     const { keyword, location } = req.body;
 
+    console.log("🔥 SCRAPER STARTED:", keyword, location);
+
+    /* ----------------------------------------------------
+       SEARCHAPI GOOGLE MAPS SCRAPE (PRO MAX MODE)
+    ---------------------------------------------------- */
     const url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
       keyword + " in " + location
-    )}&api_key=${process.env.SERP_API}`;
+    )}&api_key=${process.env.SERP_API}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
 
-    const response = await fetch(url);
-    const data = await response.json();
+    console.log("🌍 FETCHING MAP RESULTS...");
+
+    const data = await safeFetch(url);
 
     const results = data.local_results || [];
     const leads = [];
@@ -291,8 +318,10 @@ export const scrapeLeads = async (req, res) => {
       if (!phone || seenPhones.has(phone)) continue;
       seenPhones.add(phone);
 
+      // 🔎 WhatsApp Check
       const hasWhatsapp = await checkWhatsApp(phone);
 
+      // 🔎 JustDial Backup WhatsApp Check
       let jdWhatsapp = { found: false, number: "" };
       if (!hasWhatsapp)
         jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
@@ -300,6 +329,7 @@ export const scrapeLeads = async (req, res) => {
       const images = i.photos?.map((p) => p.src) || [];
       const thumbnail = i.thumbnail || images[0] || "";
 
+      // 🔎 Instagram AI Finder
       let aiIG = { exact: "", suggestions: [] };
       try {
         aiIG = await findInstagram({
@@ -312,7 +342,9 @@ export const scrapeLeads = async (req, res) => {
         });
       } catch {}
 
-      /* ---- GOOGLE RANK TRACKING ---- */
+      /* ----------------------------------------------------
+         GOOGLE RANK TRACKING (PRO MAX MODE)
+      ---------------------------------------------------- */
       let googleRankPosition = null;
       let googleRankResults = [];
       let googleTopCompetitors = [];
@@ -321,10 +353,9 @@ export const scrapeLeads = async (req, res) => {
         const searchKeyword = `${i.title} ${location}`;
         const rankUrl = `https://www.searchapi.io/api/v1/search?engine=google_rank_tracking&q=${encodeURIComponent(
           searchKeyword
-        )}&api_key=${process.env.SERP_API}`;
+        )}&api_key=${process.env.SERP_API}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
 
-        const rankRes = await fetch(rankUrl);
-        const rankJson = await rankRes.json();
+        const rankJson = await safeFetch(rankUrl);
 
         const organic = rankJson.organic_results || [];
 
@@ -333,7 +364,9 @@ export const scrapeLeads = async (req, res) => {
           googleRankResults = organic;
           googleTopCompetitors = organic.slice(0, 5);
         }
-      } catch {}
+      } catch (err) {
+        console.log("⚠️ Rank tracking error:", err.message);
+      }
 
       const lead = {
         name: i.title,
@@ -341,6 +374,7 @@ export const scrapeLeads = async (req, res) => {
         address: i.address || "",
         website: i.website || "",
         hasWebsite: !!i.website,
+
         category: i.type,
         tags: i.types || [],
 
@@ -376,12 +410,8 @@ export const scrapeLeads = async (req, res) => {
         google_rank_position: googleRankPosition,
         google_rank_results: googleRankResults,
         google_rank_top_competitors: googleTopCompetitors,
-
         google_rank_keyword: `${i.title} ${location}`,
 
-        lead_score: 0,
-
-        // REVISION: Explicitly set followup structure and status on initial lead object
         followup: {
           status: "PENDING",
           whatsapp_sent_count: 0,
@@ -393,10 +423,9 @@ export const scrapeLeads = async (req, res) => {
       leads.push(lead);
     }
 
+    // ⬆️ UPSERT INTO DATABASE
     if (leads.length) {
       const ops = leads.map((l) => {
-        // Exclude followup for the $set operation, as it's handled by $setOnInsert if new,
-        // or we want to preserve existing status if old.
         const { name, phone, createdAt, followup, ...rest } = l;
 
         return {
@@ -407,12 +436,11 @@ export const scrapeLeads = async (req, res) => {
                 name,
                 phone,
                 createdAt: new Date(),
-                // REVISION: Ensure PENDING status is set on new leads
                 "followup.status": "PENDING",
                 "followup.whatsapp_sent_count": 0,
                 "followup.history": [],
               },
-              $set: rest, // Update all other scraped data
+              $set: rest,
             },
             upsert: true,
           },
@@ -422,10 +450,12 @@ export const scrapeLeads = async (req, res) => {
       await Lead.bulkWrite(ops, { ordered: false });
     }
 
+    console.log("✅ SCRAPE COMPLETE — SAVED:", leads.length);
+
     res.json({ message: "Scrape complete", saved: leads.length, leads });
   } catch (err) {
-    console.error("SCRAPE ERROR:", err);
-    res.status(500).json({ error: "Scraping error" });
+    console.error("❌ SCRAPE ERROR:", err);
+    res.status(500).json({ error: "Scraping failed", details: err.message });
   }
 };
 
