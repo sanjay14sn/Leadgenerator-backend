@@ -1,80 +1,124 @@
 import mongoose from "mongoose";
-
-const testimonialSchema = new mongoose.Schema({
-  name: String,
-  quote: String,
-  thumbnail: String,
+const followupHistorySchema = new mongoose.Schema({
+  action: { type: String, required: true },   // e.g. "WHATSAPP_SENT"
+  message: { type: String, default: "" },
+  timestamp: { type: Date, default: Date.now },
 });
 
-const imagePromptSchema = new mongoose.Schema({
-  prompt: String,
-  style: String,
+/* ----------------------------------------------------
+   FOLLOW-UP SYSTEM
+---------------------------------------------------- */
+const followupSchema = new mongoose.Schema({
+  whatsapp_sent_count: { type: Number, default: 0 },
+  last_whatsapp_sent: { type: Date, default: null },
+
+  // Auto-reminder flags for cron
+  day1_done: { type: Boolean, default: false },
+  day3_done: { type: Boolean, default: false },
+  day7_done: { type: Boolean, default: false },
+
+  // Lead status for CRM follow-ups
+  status: {
+    type: String,
+    enum: [
+      "PENDING",
+      "SEEN",
+      "INTERESTED",
+      "NOT_INTERESTED",
+      "NOT_REACHABLE",
+      "CLOSED",
+      "HAS_WEBSITE_ALREADY",
+      "COMPLETED",
+    ],
+    default: "PENDING",
+  },
+
+  // Timeline history
+  history: { type: [followupHistorySchema], default: [] },
 });
 
-const leadSchema = new mongoose.Schema({
-  name: String,
-  phone: String,
-  address: String,
-  website: String,
-  hasWebsite: Boolean,
+const leadSchema = new mongoose.Schema(
+  {
+    // ------------------------------------------------
+    // BASIC INFO
+    // ------------------------------------------------
+    name: { type: String, default: "" },
+    phone: { type: String, required: true },
+    address: { type: String, default: "" },
 
-  category: String,
-  tags: [String],
+    website: { type: String, default: "" },
+    hasWebsite: { type: Boolean, default: false },
 
-  rating: Number,
-  reviews: Number,
-  rating_breakdown: Object,
-  review_snippet: String,
+    // ------------------------------------------------
+    // CATEGORY INFO
+    // ------------------------------------------------
+    category: { type: String, default: "" },
+    tags: { type: [String], default: [] },
 
-  gmap_link: String,
-  lat: Number,
-  lng: Number,
+    // ------------------------------------------------
+    // GOOGLE BUSINESS DATA
+    // ------------------------------------------------
+    rating: { type: Number, default: 0 },
+    reviews: { type: Number, default: 0 },
+    rating_breakdown: { type: Object, default: {} },
+    review_snippet: { type: String, default: "" },
 
-  images: [imagePromptSchema],   // ⬅️ FIXED (previously [String])
-  generated_images: { type: [mongoose.Schema.Types.Mixed], default: [] },
+    gmap_link: { type: String, default: "" },
+    lat: Number,
+    lng: Number,
 
-  thumbnail: String,
-  static_map: String,
+    images: { type: Array, default: [] },
+    generated_images: { type: Array, default: [] },
+    thumbnail: { type: String, default: "" },
+    static_map: { type: String, default: "" },
 
-  description: String,
-  hours: [String],
-  open_now_text: String,
+    description: { type: String, default: "" },
+    hours: { type: [String], default: [] },
+    open_now_text: { type: String, default: "" },
 
-  whatsapp: Boolean,
-  jd_whatsapp_exists: Boolean,
-  jd_whatsapp_number: String,
+    // ------------------------------------------------
+    // WHATSAPP DETECTION
+    // ------------------------------------------------
+    whatsapp: { type: Boolean, default: false },
+    jd_whatsapp_exists: { type: Boolean, default: false },
+    jd_whatsapp_number: { type: String, default: "" },
 
-  lead_score: Number,
-  keyword: String,
+    // ------------------------------------------------
+    // INSTAGRAM MATCHING
+    // ------------------------------------------------
+    instagram_exact: { type: String, default: "" },
+    instagram_suggestions: { type: [String], default: [] },
 
-  verified: Boolean,
+    // ------------------------------------------------
+    // LEAD SCORE LOGIC
+    // ------------------------------------------------
+    lead_score: { type: Number, default: 0 },
 
-  instagram_exact: { type: String, default: "" },
-  instagram_suggestions: { type: [String], default: [] },
+    // ------------------------------------------------
+    // WEBSITE BUILDER FIELDS
+    // ------------------------------------------------
+    hero_title: { type: String, default: "" },
+    hero_subtitle: { type: String, default: "" },
+    cta_title: { type: String, default: "" },
+    cta_button: { type: String, default: "" },
+    testimonials: { type: Array, default: [] },
 
-  /* GOOGLE RANK TRACKING */
-  google_rank_position: { type: Number, default: null },
-  google_rank_results: { type: Array, default: [] },
-  google_rank_top_competitors: { type: Array, default: [] },
-  google_rank_keyword: { type: String, default: "" },
+    web_url: { type: String, default: "" },
+    last_published: { type: Date, default: null },
 
-  /* WEBSITE BUILDER */
-  hero_title: String,
-  hero_subtitle: String,
-  cta_title: String,
-  cta_button: String,
+    // ------------------------------------------------
+    // FOLLOW-UP DATA
+    // ------------------------------------------------
+    followup: { type: followupSchema, default: () => ({}) },
 
-  testimonials: [testimonialSchema],   // ⬅️ FIXED (previously missing)
+    createdAt: { type: Date, default: Date.now },
+  },
+  { versionKey: false }
+);
 
-  web_url: { type: String, default: "" },
-  template_used: { type: String, default: "template1" },
-  last_published: { type: Date },
-  subdomain: { type: String, default: "" },
-  published_template: { type: String, default: "" },
-
-  createdAt: { type: Date, default: Date.now },
-});
-
+/* ----------------------------------------------------
+   ENSURE UNIQUE PHONE NUMBERS
+---------------------------------------------------- */
 leadSchema.index({ phone: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model("Lead", leadSchema);

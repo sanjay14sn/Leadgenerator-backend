@@ -1,13 +1,20 @@
+// src/app.js
+
 import express from "express";
 import cors from "cors";
 
-// ROUTES
+// ROUTES ONLY — NO CONTROLLERS HERE
 import leadRoutes from "./routes/leadRoutes.js";
 import aiRoutes from "./routes/aiRoutes.js";
 import instagramRoutes from "./routes/instagramRoutes.js";
 import deployRoutes from "./routes/deployRoutes.js";
+import kvRoutes from "./routes/kvRoutes.js";
 
 const app = express();
+
+// ⭐ CRITICAL FIX: Disable Etag to prevent Express from 
+// sending a 304 Not Modified response before running your controller logic.
+app.set('etag', false); 
 
 app.use(
   cors({
@@ -19,31 +26,17 @@ app.use(
 
 app.use(express.json());
 
-// Instagram
-app.use("/api/instagram", instagramRoutes);
-
-// AI
-app.use("/api/ai", aiRoutes);
-
-// Leads
+// ROUTES
 app.use("/api/leads", leadRoutes);
-
-// NEW — Deployment
+app.use("/api/ai", aiRoutes);
+app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 
-// Health check
+// KV WEBSITE ROUTES
+app.use("/api/sites", kvRoutes);
+
 app.get("/", (req, res) => {
   res.json({ status: "OK", message: "Lead Generator Backend Running 🚀" });
-});
-
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error("🔥 SERVER ERROR:", err);
-  res.status(500).json({
-    success: false,
-    message: "Internal Server Error",
-    error: err.message,
-  });
 });
 
 export default app;
