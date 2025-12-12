@@ -21,43 +21,66 @@ const app = express();
 // Disable caching
 app.disable("etag");
 
-// PRIMARY CORS
+/* ------------------------------------------------------
+   ⭐ FIXED CORS — ALLOWS ALL SUBDOMAINS OF iqsync.in
+------------------------------------------------------ */
+
+const rootDomainRegex = /\.?iqsync\.in$/;  
+// matches: iqsync.in, www.iqsync.in, anything.iqsync.in
+
 app.use(
   cors({
-    origin: "*",
+    origin: function (origin, callback) {
+      if (!origin) return callback(null, true); // Postman/mobile apps
+
+      try {
+        const hostname = new URL(origin).hostname;
+
+        // 1️⃣ Allow localhost for development
+        if (hostname === "localhost" || hostname === "127.0.0.1") {
+          return callback(null, true);
+        }
+
+        // 2️⃣ Allow iqsync.in + unlimited subdomains
+        if (rootDomainRegex.test(hostname)) {
+          return callback(null, true);
+        }
+
+        console.log("❌ BLOCKED ORIGIN:", origin);
+        return callback(new Error("CORS blocked: " + origin));
+      } catch (err) {
+        console.log("❌ Invalid Origin:", origin);
+        return callback(new Error("CORS error"));
+      }
+    },
+
+    credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// SECONDARY CORS FAILSAFE
-app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "*");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization"
-  );
-  res.header(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS"
-  );
+// FIX preflight
+app.options("*", cors());
 
-  if (req.method === "OPTIONS") return res.sendStatus(200);
-  next();
-});
-
-// Large body parsing
+/* ------------------------------------------------------
+   BODY PARSER
+------------------------------------------------------ */
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// ROUTES
+/* ------------------------------------------------------
+   ROUTES
+------------------------------------------------------ */
 app.use("/api/leads", leadRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 
-// TEST ROUTE
+/* ------------------------------------------------------
+   TEST ROUTE
+------------------------------------------------------ */
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
@@ -65,18 +88,22 @@ app.get("/", (req, res) => {
   });
 });
 
-// DB
+/* ------------------------------------------------------
+   DATABASE + SERVER START
+------------------------------------------------------ */
 connectDB();
 
-// START SERVER — FIXED
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 8080;
 
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on PORT ${PORT}`);
 });
 
-// CRONS
+/* ------------------------------------------------------
+   CRON JOBS
+------------------------------------------------------ */
 startInstagramCron();
+
 cron.schedule("0 * * * *", () => {
   console.log("🔁 Running Follow-up Cron...");
   runFollowupCron();
