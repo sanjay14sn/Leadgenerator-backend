@@ -1,3 +1,5 @@
+// server.js (The complete, single entry point file)
+
 // ---------------------------------------------
 // 1. LOAD ENV FIRST
 // ---------------------------------------------
@@ -13,7 +15,7 @@ import cron from "node-cron";
 
 import connectDB from "./src/config/db.js";
 
-// ROUTES
+// ROUTES — ENSURE THESE ARE IMPORTS FROM YOUR ROUTE FILES, NOT app.js
 import leadRoutes from "./src/routes/leadRoutes.js";
 import aiRoutes from "./src/routes/aiRoutes.js";
 import instagramRoutes from "./src/routes/instagramRoutes.js";
@@ -25,16 +27,16 @@ import { startInstagramCron } from "./src/cron/instagramCron.js";
 import { runFollowupCron } from "./src/cron/followupChecker.js";
 
 // ---------------------------------------------
-// 3. EXPRESS APP
+// 3. EXPRESS APP Initialization
 // ---------------------------------------------
 const app = express();
 
-// ⭐ FIX CORS + 304 ISSUES
+// ⭐ FIX: ETAG and CORS are correctly applied to this single 'app' instance
 app.set("etag", false);
 
-// ⭐ ALLOW ALL CORS — 100% OPEN
+// ⭐ WIDEST CORS CONFIGURATION (Allows all origins)
 app.use(cors());
-app.options("*", cors());
+app.options("*", cors()); // Handle pre-flight requests
 
 // handle json body
 app.use(express.json());
@@ -57,13 +59,10 @@ app.get("/", (req, res) => {
 });
 
 // ---------------------------------------------
-// 5. CONNECT DATABASE
+// 5. CONNECT DATABASE & START SERVER
 // ---------------------------------------------
 connectDB();
 
-// ---------------------------------------------
-// 6. START SERVER
-// ---------------------------------------------
 const PORT = process.env.PORT || 5009;
 
 app.listen(PORT, () => {
@@ -71,13 +70,10 @@ app.listen(PORT, () => {
 });
 
 // ---------------------------------------------
-// 7. CRON JOBS
+// 6. CRON JOBS
 // ---------------------------------------------
-
-// Instagram cron: daily
 startInstagramCron();
 
-// Follow-up cron: every hour
 cron.schedule("0 * * * *", () => {
   console.log("🔁 Running Follow-up Cron...");
   runFollowupCron();
