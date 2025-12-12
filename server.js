@@ -18,19 +18,19 @@ import { runFollowupCron } from "./src/cron/followupChecker.js";
 
 const app = express();
 
-// ⭐ Disable caching
+// Disable caching
 app.disable("etag");
 
-// ⭐ PRIMARY CORS LAYER (Express CORS)
+// PRIMARY CORS
 app.use(
   cors({
-    origin: "*", // Allow all domains (iqsync.in, localhost, etc.)
+    origin: "*",
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// ⭐ SECONDARY CORS FAILSAFE (fix Railway removing headers)
+// SECONDARY CORS FAILSAFE
 app.use((req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");
   res.header(
@@ -42,26 +42,22 @@ app.use((req, res, next) => {
     "GET, POST, PUT, PATCH, DELETE, OPTIONS"
   );
 
-  // Handle preflight requests
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
-// ⭐ Large Body Parser
+// Large body parsing
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
-// ⭐ ROUTES
+// ROUTES
 app.use("/api/leads", leadRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 
-// ⭐ ROOT TEST ROUTE
+// TEST ROUTE
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
@@ -69,18 +65,18 @@ app.get("/", (req, res) => {
   });
 });
 
-// ⭐ DB Connection
+// DB
 connectDB();
 
-// ⭐ START SERVER
-const PORT = process.env.PORT || 5009;
+// START SERVER — FIXED
+const PORT = process.env.PORT;
+
 app.listen(PORT, () => {
   console.log(`🚀 Backend running on PORT ${PORT}`);
 });
 
-// ⭐ CRONS
+// CRONS
 startInstagramCron();
-
 cron.schedule("0 * * * *", () => {
   console.log("🔁 Running Follow-up Cron...");
   runFollowupCron();
