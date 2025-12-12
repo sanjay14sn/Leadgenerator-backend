@@ -292,6 +292,9 @@ export const updateLeadAndPublish = async (req, res) => {
 /* ----------------------------------------------------
    LEAD SCRAPE (REVISED)
 ---------------------------------------------------- */
+/* ----------------------------------------------------
+   LEAD SCRAPE (PRO MAX — NO RANK TRACKING)
+---------------------------------------------------- */
 export const scrapeLeads = async (req, res) => {
   try {
     const { keyword, location } = req.body;
@@ -299,7 +302,7 @@ export const scrapeLeads = async (req, res) => {
     console.log("🔥 SCRAPER STARTED:", keyword, location);
 
     /* ----------------------------------------------------
-       SEARCHAPI GOOGLE MAPS SCRAPE (PRO MAX MODE)
+       SEARCHAPI GOOGLE MAPS SCRAPE (PROXY MODE)
     ---------------------------------------------------- */
     const url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
       keyword + " in " + location
@@ -308,8 +311,8 @@ export const scrapeLeads = async (req, res) => {
     console.log("🌍 FETCHING MAP RESULTS...");
 
     const data = await safeFetch(url);
-
     const results = data.local_results || [];
+
     const leads = [];
     const seenPhones = new Set();
 
@@ -318,18 +321,27 @@ export const scrapeLeads = async (req, res) => {
       if (!phone || seenPhones.has(phone)) continue;
       seenPhones.add(phone);
 
-      // 🔎 WhatsApp Check
+      /* ----------------------------------------------------
+         WHATSAPP CHECK
+      ---------------------------------------------------- */
       const hasWhatsapp = await checkWhatsApp(phone);
 
-      // 🔎 JustDial Backup WhatsApp Check
+      /* ----------------------------------------------------
+         JUSTDIAL BACKUP WHATSAPP CHECK
+      ---------------------------------------------------- */
       let jdWhatsapp = { found: false, number: "" };
       if (!hasWhatsapp)
         jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
 
+      /* ----------------------------------------------------
+         IMAGES + THUMBNAIL
+      ---------------------------------------------------- */
       const images = i.photos?.map((p) => p.src) || [];
       const thumbnail = i.thumbnail || images[0] || "";
 
-      // 🔎 Instagram AI Finder
+      /* ----------------------------------------------------
+         INSTAGRAM FINDER (AI)
+      ---------------------------------------------------- */
       let aiIG = { exact: "", suggestions: [] };
       try {
         aiIG = await findInstagram({
@@ -340,34 +352,20 @@ export const scrapeLeads = async (req, res) => {
           phone,
           gmap: i.reviews_link,
         });
-      } catch {}
+      } catch (err) {
+        console.log("⚠️ Instagram Finder Error:", err.message);
+      }
 
       /* ----------------------------------------------------
-         GOOGLE RANK TRACKING (PRO MAX MODE)
+         RANK TRACKING DISABLED (OPTION A)
       ---------------------------------------------------- */
       let googleRankPosition = null;
       let googleRankResults = [];
       let googleTopCompetitors = [];
 
-      try {
-        const searchKeyword = `${i.title} ${location}`;
-        const rankUrl = `https://www.searchapi.io/api/v1/search?engine=google_rank_tracking&q=${encodeURIComponent(
-          searchKeyword
-        )}&api_key=${process.env.SERP_API}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
-
-        const rankJson = await safeFetch(rankUrl);
-
-        const organic = rankJson.organic_results || [];
-
-        if (organic.length > 0) {
-          googleRankPosition = organic[0].position;
-          googleRankResults = organic;
-          googleTopCompetitors = organic.slice(0, 5);
-        }
-      } catch (err) {
-        console.log("⚠️ Rank tracking error:", err.message);
-      }
-
+      /* ----------------------------------------------------
+         PREPARE LEAD OBJECT
+      ---------------------------------------------------- */
       const lead = {
         name: i.title,
         phone,
@@ -402,8 +400,6 @@ export const scrapeLeads = async (req, res) => {
         jd_whatsapp_exists: jdWhatsapp.found,
         jd_whatsapp_number: jdWhatsapp.number,
 
-        keyword,
-
         instagram_exact: aiIG.exact,
         instagram_suggestions: aiIG.suggestions,
 
@@ -419,11 +415,15 @@ export const scrapeLeads = async (req, res) => {
         },
       };
 
+      // Auto score
       lead.lead_score = scoreLead(lead);
+
       leads.push(lead);
     }
 
-    // ⬆️ UPSERT INTO DATABASE
+    /* ----------------------------------------------------
+       UPSERT INTO DATABASE
+    ---------------------------------------------------- */
     if (leads.length) {
       const ops = leads.map((l) => {
         const { name, phone, createdAt, followup, ...rest } = l;
@@ -455,9 +455,13 @@ export const scrapeLeads = async (req, res) => {
     res.json({ message: "Scrape complete", saved: leads.length, leads });
   } catch (err) {
     console.error("❌ SCRAPE ERROR:", err);
-    res.status(500).json({ error: "Scraping failed", details: err.message });
+    res.status(500).json({
+      error: "Scraping failed",
+      details: err.message,
+    });
   }
 };
+
 
 /* ----------------------------------------------------
    GETTERS (Unchanged)
