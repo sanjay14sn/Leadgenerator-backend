@@ -1,5 +1,16 @@
 import mongoose from "mongoose";
 
+const testimonialSchema = new mongoose.Schema({
+  name: String,
+  quote: String,
+  thumbnail: String,
+});
+
+const imagePromptSchema = new mongoose.Schema({
+  prompt: String,
+  style: String,
+});
+
 const leadSchema = new mongoose.Schema({
   name: String,
   phone: String,
@@ -19,7 +30,9 @@ const leadSchema = new mongoose.Schema({
   lat: Number,
   lng: Number,
 
-  images: [String],
+  images: [imagePromptSchema],   // ⬅️ FIXED (previously [String])
+  generated_images: { type: [mongoose.Schema.Types.Mixed], default: [] },
+
   thumbnail: String,
   static_map: String,
 
@@ -39,20 +52,25 @@ const leadSchema = new mongoose.Schema({
   instagram_exact: { type: String, default: "" },
   instagram_suggestions: { type: [String], default: [] },
 
-  /* NEW — GOOGLE RANK TRACKING */
+  /* GOOGLE RANK TRACKING */
   google_rank_position: { type: Number, default: null },
   google_rank_results: { type: Array, default: [] },
   google_rank_top_competitors: { type: Array, default: [] },
   google_rank_keyword: { type: String, default: "" },
 
   /* WEBSITE BUILDER */
+  hero_title: String,
+  hero_subtitle: String,
+  cta_title: String,
+  cta_button: String,
+
+  testimonials: [testimonialSchema],   // ⬅️ FIXED (previously missing)
+
   web_url: { type: String, default: "" },
   template_used: { type: String, default: "template1" },
   last_published: { type: Date },
   subdomain: { type: String, default: "" },
   published_template: { type: String, default: "" },
-
-  generated_images: { type: [mongoose.Schema.Types.Mixed], default: [] },
 
   createdAt: { type: Date, default: Date.now },
 });

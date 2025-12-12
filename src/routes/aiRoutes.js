@@ -1,93 +1,171 @@
 import express from "express";
 import fetch from "node-fetch";
+import { z } from "zod";
+import { generateAndUploadImage } from "../utils/aiImageGenerator.js";
 
 const router = express.Router();
 
-function safeJSON(text) {
-  if (!text) return null;
+/* -------------------------------------------
+  ZOD VALIDATION SCHEMA
+------------------------------------------- */
+const EnhancedSchema = z.object({
+  hero_title: z.string(),
+  hero_subtitle: z.string(),
+  description: z.string(),
+  cta_title: z.string(),
+  cta_button: z.string(),
+  testimonials: z
+    .array(z.object({ name: z.string(), quote: z.string() }))
+    .length(1),
+  images: z
+    .array(z.object({ prompt: z.string(), style: z.string() }))
+    .length(3),
+});
 
-  const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return null;
+/* -------------------------------------------
+      GEMINI OUTPUT SCHEMA
+------------------------------------------- */
+const geminiSchema = {
+  type: "object",
+  properties: {
+    hero_title: { type: "string" },
+    hero_subtitle: { type: "string" },
+    description: { type: "string" },
+    cta_title: { type: "string" },
+    cta_button: { type: "string" },
+    testimonials: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          quote: { type: "string" },
+        },
+      },
+      minItems: 1,
+      maxItems: 1,
+    },
+    images: {
+      type: "array",
+      items: {
+        type: "object",
+        properties: {
+          prompt: { type: "string" },
+          style: { type: "string" },
+        },
+      },
+      minItems: 3,
+      maxItems: 3,
+    },
+  },
+  required: [
+    "hero_title",
+    "hero_subtitle",
+    "description",
+    "cta_title",
+    "cta_button",
+    "testimonials",
+    "images",
+  ],
+};
 
-  try {
-    return JSON.parse(match[0]);
-  } catch {
-    return null;
-  }
-}
-
+/* -------------------------------------------
+          ENHANCE ROUTE (FINAL VERSION)
+------------------------------------------- */
 router.post("/enhance", async (req, res) => {
   try {
     const { lead } = req.body;
 
     const prompt = `
-You are a professional website content generator.
+Generate high-quality preschool/daycare website content based on:
 
-Using the following business details, CREATE high-quality website content.
-
-🚀 IMPORTANT RULES:
-- ALL fields must be filled with meaningful content.
-- NEVER return empty strings.
-- ALWAYS return valid JSON.
-- Include 3 strong image prompts suitable for AI image generation.
-
-Return JSON ONLY in this EXACT format:
-
-{
-  "hero_title": "string",
-  "hero_subtitle": "string",
-  "description": "string",
-  "cta_title": "string",
-  "cta_button": "string",
-  "testimonials": [
-    {
-      "name": "string",
-      "quote": "string"
-    }
-  ],
-  "images": [
-    { "prompt": "string describing hero banner", "style": "string style" },
-    { "prompt": "string describing inside view or service", "style": "string style" },
-    { "prompt": "string describing brand vibe", "style": "string style" }
-  ]
-}
-
-Business details:InstagramLead.js
 ${JSON.stringify(lead, null, 2)}
-`;
 
-    const apiKey = process.env.OPENROUTER_API_KEY;
+Return ONLY JSON that matches the schema.
+    `;
 
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "google/gemini-2.0-flash-001",
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
+    /* -------------------------------------------
+          CALL GEMINI FOR TEXT CONTENT
+    ------------------------------------------- */
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-goog-api-key": process.env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            response_mime_type: "application/json",
+            response_schema: geminiSchema,
+          },
+        }),
+      }
+    );
 
-    const json = await response.json();
-    const text = json?.choices?.[0]?.message?.content;
+    const data = await response.json();
 
-    console.log("📥 Raw AI:", text);
-
-    const enhanced = safeJSON(text);
-    if (!enhanced) {
+    if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
       return res.status(500).json({
-        error: "AI returned invalid JSON",
-        raw: text
+        error: "Gemini returned no output",
+        details: data,
       });
     }
 
-    res.json({ enhanced });
+    const rawJSON = data.candidates[0].content.parts[0].text;
+
+    let parsed = {};
+    try {
+      parsed = JSON.parse(rawJSON);
+    } catch (err) {
+      console.error("JSON parse error:", err);
+      return res.status(400).json({
+        error: "Gemini returned invalid JSON",
+        raw: rawJSON,
+      });
+    }
+
+    /* -------------------------------------------
+          VALIDATE USING ZOD
+    ------------------------------------------- */
+    try {
+      EnhancedSchema.parse(parsed);
+    } catch (err) {
+      return res.status(400).json({
+        error: "Zod validation failed",
+        details: err.errors,
+        raw: parsed,
+      });
+    }
+
+    /* -------------------------------------------
+          GENERATE REAL IMAGES USING GEMINI
+          AND UPLOAD TO CLOUDINARY
+    ------------------------------------------- */
+    const generatedImages = [];
+
+    for (const img of parsed.images) {
+      const cloudinaryURL = await generateAndUploadImage(img.prompt, img.style);
+
+      generatedImages.push({
+        prompt: img.prompt,
+        style: img.style,
+        url: cloudinaryURL,
+      });
+    }
+
+    parsed.generated_images = generatedImages;
+
+    /* -------------------------------------------
+          SEND FINAL RESULT
+    ------------------------------------------- */
+    return res.json({ enhanced: parsed });
 
   } catch (err) {
-    console.error("❌ AI Enhance Error:", err.message);
-    res.status(500).json({ error: "AI failed" });
+    console.error("❌ Enhance Error:", err);
+    res.status(500).json({ error: "Server error", message: err.message });
   }
 });
 
