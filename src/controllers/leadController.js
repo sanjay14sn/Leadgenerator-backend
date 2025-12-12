@@ -295,22 +295,26 @@ export const updateLeadAndPublish = async (req, res) => {
 /* ----------------------------------------------------
    LEAD SCRAPE (PRO MAX — NO RANK TRACKING)
 ---------------------------------------------------- */
+/* ----------------------------------------------------
+   LEAD SCRAPE – 429 PRO MAX VERSION 
+---------------------------------------------------- */
 export const scrapeLeads = async (req, res) => {
   try {
     const { keyword, location } = req.body;
-
     console.log("🔥 SCRAPER STARTED:", keyword, location);
 
+    let apiKey = getRandomKey();
+
     /* ----------------------------------------------------
-       SEARCHAPI GOOGLE MAPS SCRAPE (PROXY MODE)
+       SEARCHAPI GOOGLE MAPS SCRAPE (429 SAFE)
     ---------------------------------------------------- */
-    const url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
+    let url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
       keyword + " in " + location
-    )}&api_key=${process.env.SERP_API}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
+    )}&api_key=${apiKey}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
 
-    console.log("🌍 FETCHING MAP RESULTS...");
+    console.log("🌍 FETCHING MAP RESULTS (429 SAFE)...");
 
-    const data = await safeFetch(url);
+    const data = await safeFetch429(url);
     const results = data.local_results || [];
 
     const leads = [];
@@ -321,27 +325,19 @@ export const scrapeLeads = async (req, res) => {
       if (!phone || seenPhones.has(phone)) continue;
       seenPhones.add(phone);
 
-      /* ----------------------------------------------------
-         WHATSAPP CHECK
-      ---------------------------------------------------- */
+      // WhatsApp Check
       const hasWhatsapp = await checkWhatsApp(phone);
 
-      /* ----------------------------------------------------
-         JUSTDIAL BACKUP WHATSAPP CHECK
-      ---------------------------------------------------- */
+      // JD Backup WhatsApp Check
       let jdWhatsapp = { found: false, number: "" };
       if (!hasWhatsapp)
         jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
 
-      /* ----------------------------------------------------
-         IMAGES + THUMBNAIL
-      ---------------------------------------------------- */
+      // Images
       const images = i.photos?.map((p) => p.src) || [];
       const thumbnail = i.thumbnail || images[0] || "";
 
-      /* ----------------------------------------------------
-         INSTAGRAM FINDER (AI)
-      ---------------------------------------------------- */
+      // Instagram Finder
       let aiIG = { exact: "", suggestions: [] };
       try {
         aiIG = await findInstagram({
@@ -352,20 +348,13 @@ export const scrapeLeads = async (req, res) => {
           phone,
           gmap: i.reviews_link,
         });
-      } catch (err) {
-        console.log("⚠️ Instagram Finder Error:", err.message);
-      }
+      } catch {}
 
-      /* ----------------------------------------------------
-         RANK TRACKING DISABLED (OPTION A)
-      ---------------------------------------------------- */
+      // No rank tracking (Option A)
       let googleRankPosition = null;
       let googleRankResults = [];
       let googleTopCompetitors = [];
 
-      /* ----------------------------------------------------
-         PREPARE LEAD OBJECT
-      ---------------------------------------------------- */
       const lead = {
         name: i.title,
         phone,
@@ -396,16 +385,17 @@ export const scrapeLeads = async (req, res) => {
         open_now_text: i.hours?.status || "",
         verified: i.claimed,
 
+        instagram_exact: aiIG.exact,
+        instagram_suggestions: aiIG.suggestions,
+
         whatsapp: hasWhatsapp,
         jd_whatsapp_exists: jdWhatsapp.found,
         jd_whatsapp_number: jdWhatsapp.number,
 
-        instagram_exact: aiIG.exact,
-        instagram_suggestions: aiIG.suggestions,
-
         google_rank_position: googleRankPosition,
         google_rank_results: googleRankResults,
         google_rank_top_competitors: googleTopCompetitors,
+
         google_rank_keyword: `${i.title} ${location}`,
 
         followup: {
@@ -415,9 +405,7 @@ export const scrapeLeads = async (req, res) => {
         },
       };
 
-      // Auto score
       lead.lead_score = scoreLead(lead);
-
       leads.push(lead);
     }
 
@@ -452,7 +440,11 @@ export const scrapeLeads = async (req, res) => {
 
     console.log("✅ SCRAPE COMPLETE — SAVED:", leads.length);
 
-    res.json({ message: "Scrape complete", saved: leads.length, leads });
+    res.json({
+      message: "Scrape complete",
+      saved: leads.length,
+      leads,
+    });
   } catch (err) {
     console.error("❌ SCRAPE ERROR:", err);
     res.status(500).json({
@@ -461,7 +453,6 @@ export const scrapeLeads = async (req, res) => {
     });
   }
 };
-
 
 /* ----------------------------------------------------
    GETTERS (Unchanged)
