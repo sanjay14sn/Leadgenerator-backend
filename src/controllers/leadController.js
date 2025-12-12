@@ -162,6 +162,58 @@ export const updateFollowupStatus = async (req, res) => {
   }
 };
 
+// MULTI-KEY ROTATION (Auto switch when 429)
+const SERP_KEYS = process.env.SERP_KEYS.split(",");
+
+function getRandomKey() {
+  return SERP_KEYS[Math.floor(Math.random() * SERP_KEYS.length)];
+}
+
+// 429-PROOF FETCH WRAPPER
+async function safeFetch429(url, attempt = 1) {
+  const MAX_RETRIES = 7;          // Retry up to 7 times
+  const WAIT = attempt * 1500;    // Exponential backoff (1.5s, 3s, 4.5s...)
+
+  try {
+    console.log(`🌍 Fetch Attempt ${attempt}: ${url}`);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+
+    // Normal success
+    if (res.ok) return await res.json();
+
+    // Rate limit hit
+    if (res.status === 429) {
+      console.log(`❌ 429 RATE LIMIT — Waiting ${WAIT}ms and retrying...`);
+
+      if (attempt === MAX_RETRIES)
+        throw new Error("Too many retries (429)");
+
+      await new Promise((r) => setTimeout(r, WAIT));
+
+      // Rotate API key
+      url = url.replace(/api_key=[^&]+/, `api_key=${getRandomKey()}`);
+
+      return safeFetch429(url, attempt + 1);
+    }
+
+    // Other error
+    throw new Error(`HTTP ${res.status}`);
+  } catch (err) {
+    if (attempt === MAX_RETRIES) throw err;
+
+    console.log(`⚠️ Error — Retrying in ${WAIT}ms:`, err.message);
+    await new Promise((r) => setTimeout(r, WAIT));
+
+    return safeFetch429(url, attempt + 1);
+  }
+}
+
+
 // PRO MAX Fetch Wrapper (Retries + Timeout + Proxy Safe)
 async function safeFetch(url, retries = 3) {
   for (let i = 0; i < retries; i++) {
