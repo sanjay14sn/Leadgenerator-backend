@@ -1,17 +1,29 @@
 // src/controllers/leadController.js
 
+import dotenv from "dotenv";
+dotenv.config();
+
 import fetch from "node-fetch";
 import Lead from "../models/Lead.js";
 import { generateCSV } from "../utils/csvExporter.js";
 import { findInstagram } from "../utils/instagramFinder.js";
 
 /* ----------------------------------------------------
+   MULTI KEY LOADING (SAFE + NO DUPLICATES)
+---------------------------------------------------- */
+const SERP_KEYS = (process.env.SERP_KEYS || "")
+  .split(",")
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+function getRandomKey() {
+  return SERP_KEYS[Math.floor(Math.random() * SERP_KEYS.length)];
+}
+
+/* ----------------------------------------------------
    HELPERS (Unchanged)
 ---------------------------------------------------- */
-
-// WHATSAPP CHECKER
 async function checkWhatsApp(phone) {
-  // ... (implementation unchanged)
   if (!phone) return false;
 
   const clean = phone.replace(/\D/g, "");
@@ -26,17 +38,15 @@ async function checkWhatsApp(phone) {
   }
 }
 
-// JUSTDIAL WHATSAPP CHECK
 async function checkJustDialWhatsApp(businessName, city = "Chennai") {
-  // ... (implementation unchanged)
   try {
     const url = `https://www.justdial.com/api/india_api_search.php?query=${encodeURIComponent(
       businessName + " " + city
     )}`;
 
     const res = await fetch(url);
-
     const text = await res.text();
+
     try {
       const data = JSON.parse(text);
       if (!data.results?.length) return { found: false, number: "" };
@@ -47,7 +57,7 @@ async function checkJustDialWhatsApp(businessName, city = "Chennai") {
         number: jd.contacts?.whatsapp || "",
       };
     } catch {
-      console.log("JD WhatsApp error: non-JSON response");
+      console.log("JD WhatsApp error: non-JSON");
       return { found: false, number: "" };
     }
   } catch (err) {
@@ -56,9 +66,7 @@ async function checkJustDialWhatsApp(businessName, city = "Chennai") {
   }
 }
 
-// LEAD SCORING
 function scoreLead(lead) {
-  // ... (implementation unchanged)
   let score = 0;
 
   if (lead.whatsapp) score += 40;
@@ -72,20 +80,19 @@ function scoreLead(lead) {
 }
 
 /* ----------------------------------------------------
-   FOLLOW-UP ACTIONS (Unchanged)
+   FOLLOW-UP ACTIONS
 ---------------------------------------------------- */
 export const logWhatsAppSent = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const lead = await Lead.findById(req.params.id);
 
     if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    // Initialize followup if it doesn't exist
     if (!lead.followup) lead.followup = {};
 
     lead.followup.whatsapp_sent_count =
       (lead.followup.whatsapp_sent_count || 0) + 1;
+
     lead.followup.last_whatsapp_sent = new Date();
 
     lead.followup.history.push({
@@ -101,12 +108,10 @@ export const logWhatsAppSent = async (req, res) => {
 };
 
 export const trackWhatsAppRedirect = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).send("Lead not found");
 
-    // Add delivered status
     lead.followup.history.push({
       action: "WHATSAPP_DELIVERED",
       message: "Lead clicked WhatsApp message link",
@@ -117,7 +122,6 @@ export const trackWhatsAppRedirect = async (req, res) => {
     const phone = lead.phone.replace(/\D/g, "");
     const msg = encodeURIComponent("Mam/Sir, here is your sample website.");
 
-    // Redirect to the actual WhatsApp chat link
     return res.redirect(`https://wa.me/${phone}?text=${msg}`);
   } catch (err) {
     console.error(err);
@@ -126,7 +130,6 @@ export const trackWhatsAppRedirect = async (req, res) => {
 };
 
 export const trackWebsiteOpen = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const lead = await Lead.findById(req.params.id);
 
@@ -145,14 +148,10 @@ export const trackWebsiteOpen = async (req, res) => {
 };
 
 export const updateFollowupStatus = async (req, res) => {
-  // ... (implementation unchanged)
   try {
-    const { id } = req.params;
-    const { status } = req.body;
-
     const lead = await Lead.findByIdAndUpdate(
-      id,
-      { "followup.status": status },
+      req.params.id,
+      { "followup.status": req.body.status },
       { new: true }
     );
 
@@ -162,17 +161,12 @@ export const updateFollowupStatus = async (req, res) => {
   }
 };
 
-// MULTI-KEY ROTATION (Auto switch when 429)
-const SERP_KEYS = process.env.SERP_KEYS.split(",");
-
-function getRandomKey() {
-  return SERP_KEYS[Math.floor(Math.random() * SERP_KEYS.length)];
-}
-
-// 429-PROOF FETCH WRAPPER
+/* ----------------------------------------------------
+   429-PROOF FETCH WRAPPER
+---------------------------------------------------- */
 async function safeFetch429(url, attempt = 1) {
-  const MAX_RETRIES = 7;          // Retry up to 7 times
-  const WAIT = attempt * 1500;    // Exponential backoff (1.5s, 3s, 4.5s...)
+  const MAX_RETRIES = 7;
+  const WAIT = attempt * 1500;
 
   try {
     console.log(`🌍 Fetch Attempt ${attempt}: ${url}`);
@@ -183,66 +177,34 @@ async function safeFetch429(url, attempt = 1) {
     const res = await fetch(url, { signal: controller.signal });
     clearTimeout(timeout);
 
-    // Normal success
     if (res.ok) return await res.json();
 
-    // Rate limit hit
     if (res.status === 429) {
-      console.log(`❌ 429 RATE LIMIT — Waiting ${WAIT}ms and retrying...`);
+      console.log(`❌ 429 RATE LIMIT → Wait ${WAIT}ms and retry`);
 
-      if (attempt === MAX_RETRIES)
-        throw new Error("Too many retries (429)");
+      if (attempt === MAX_RETRIES) throw new Error("Too many retries (429)");
 
       await new Promise((r) => setTimeout(r, WAIT));
 
-      // Rotate API key
       url = url.replace(/api_key=[^&]+/, `api_key=${getRandomKey()}`);
 
       return safeFetch429(url, attempt + 1);
     }
 
-    // Other error
     throw new Error(`HTTP ${res.status}`);
   } catch (err) {
     if (attempt === MAX_RETRIES) throw err;
 
-    console.log(`⚠️ Error — Retrying in ${WAIT}ms:`, err.message);
     await new Promise((r) => setTimeout(r, WAIT));
-
     return safeFetch429(url, attempt + 1);
   }
 }
 
-
-// PRO MAX Fetch Wrapper (Retries + Timeout + Proxy Safe)
-async function safeFetch(url, retries = 3) {
-  for (let i = 0; i < retries; i++) {
-    try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 15000); // 15 sec timeout
-
-      const res = await fetch(url, { signal: controller.signal });
-      clearTimeout(timeout);
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (err) {
-      console.log(`🔁 Fetch Retry ${i + 1}/${retries} failed → ${err.message}`);
-      if (i === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-  }
-}
-
-
 /* ----------------------------------------------------
-   NEW: SIMPLE LEAD DATA UPDATE (For Notes/Basic Fields)
+   SIMPLE UPDATE (Notes etc.)
 ---------------------------------------------------- */
-// This is the controller the frontend's addNote function will now hit.
 export const updateLeadData = async (req, res) => {
-  // ... (implementation unchanged)
   try {
-    // We explicitly exclude fields that trigger website builder/publishing
     const {
       hero_title,
       hero_subtitle,
@@ -254,10 +216,11 @@ export const updateLeadData = async (req, res) => {
       ...updatePayload
     } = req.body;
 
-    const updated = await Lead.findByIdAndUpdate(req.params.id, updatePayload, {
-      new: true,
-      runValidators: true,
-    });
+    const updated = await Lead.findByIdAndUpdate(
+      req.params.id,
+      updatePayload,
+      { new: true, runValidators: true }
+    );
 
     if (!updated) return res.status(404).json({ message: "Lead not found" });
 
@@ -269,19 +232,13 @@ export const updateLeadData = async (req, res) => {
 };
 
 /* ----------------------------------------------------
-   WEBSITE PUBLISH LEAD UPDATE (Original Logic)
+   UPDATE + PUBLISH (Netlify)
 ---------------------------------------------------- */
-// Renamed the original updateLead to updateLeadAndPublish to reflect its purpose
 export const updateLeadAndPublish = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const update = { ...req.body };
 
-    // Logic to handle image conversion for the website builder
-    if (
-      Array.isArray(req.body.images) &&
-      typeof req.body.images[0] === "object"
-    ) {
+    if (Array.isArray(req.body.images) && typeof req.body.images[0] === "object") {
       update.generated_images = req.body.images;
       delete update.images;
     }
@@ -292,24 +249,23 @@ export const updateLeadAndPublish = async (req, res) => {
 
     if (!updated) return res.status(404).json({ message: "Lead not found" });
 
-    // --- WEBSITE PUBLISHING LOGIC ---
     const pixel = `<img src="https://yourapi.com/open/${updated._id}" width="1" height="1" />`;
 
     const html = `
       <html>
-        <head>
-          <title>${updated.name}</title>
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>body{font-family:sans-serif;padding:24px;}</style>
-        </head>
-        <body>
-          ${pixel}
-          <h1>${updated.hero_title || updated.name}</h1>
-          <p>${updated.hero_subtitle || ""}</p>
-          ${updated.thumbnail ? `<img src="${updated.thumbnail}" />` : ""}
-          <h2>About</h2>
-          <p>${updated.description || ""}</p>
-        </body>
+      <head>
+        <title>${updated.name}</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>body{font-family:sans-serif;padding:24px;}</style>
+      </head>
+      <body>
+        ${pixel}
+        <h1>${updated.hero_title || updated.name}</h1>
+        <p>${updated.hero_subtitle || ""}</p>
+        ${updated.thumbnail ? `<img src="${updated.thumbnail}" />` : ""}
+        <h2>About</h2>
+        <p>${updated.description || ""}</p>
+      </body>
       </html>
     `;
 
@@ -320,11 +276,12 @@ export const updateLeadAndPublish = async (req, res) => {
     });
 
     let webUrl = "";
+
     try {
       const data = await uploadRes.json();
       webUrl = data.url || "";
     } catch {
-      console.error("Netlify upload failed, possibly non-JSON response.");
+      console.error("Netlify returned non-JSON");
     }
 
     if (webUrl) {
@@ -333,22 +290,15 @@ export const updateLeadAndPublish = async (req, res) => {
       await updated.save();
     }
 
-    // Returning the newly published URL and the updated lead data
     res.json({ updated, web_url: webUrl });
   } catch (err) {
-    console.error("UPDATE & PUBLISH ERROR:", err);
+    console.error("PUBLISH ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* ----------------------------------------------------
-   LEAD SCRAPE (REVISED)
----------------------------------------------------- */
-/* ----------------------------------------------------
-   LEAD SCRAPE (PRO MAX — NO RANK TRACKING)
----------------------------------------------------- */
-/* ----------------------------------------------------
-   LEAD SCRAPE – 429 PRO MAX VERSION 
+   SCRAPE LEADS – 429 PRO MAX VERSION
 ---------------------------------------------------- */
 export const scrapeLeads = async (req, res) => {
   try {
@@ -357,14 +307,11 @@ export const scrapeLeads = async (req, res) => {
 
     let apiKey = getRandomKey();
 
-    /* ----------------------------------------------------
-       SEARCHAPI GOOGLE MAPS SCRAPE (429 SAFE)
-    ---------------------------------------------------- */
     let url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
       keyword + " in " + location
     )}&api_key=${apiKey}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
 
-    console.log("🌍 FETCHING MAP RESULTS (429 SAFE)...");
+    console.log("🌍 FETCHING MAP RESULTS...");
 
     const data = await safeFetch429(url);
     const results = data.local_results || [];
@@ -377,19 +324,15 @@ export const scrapeLeads = async (req, res) => {
       if (!phone || seenPhones.has(phone)) continue;
       seenPhones.add(phone);
 
-      // WhatsApp Check
       const hasWhatsapp = await checkWhatsApp(phone);
 
-      // JD Backup WhatsApp Check
       let jdWhatsapp = { found: false, number: "" };
       if (!hasWhatsapp)
         jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
 
-      // Images
       const images = i.photos?.map((p) => p.src) || [];
       const thumbnail = i.thumbnail || images[0] || "";
 
-      // Instagram Finder
       let aiIG = { exact: "", suggestions: [] };
       try {
         aiIG = await findInstagram({
@@ -401,11 +344,6 @@ export const scrapeLeads = async (req, res) => {
           gmap: i.reviews_link,
         });
       } catch {}
-
-      // No rank tracking (Option A)
-      let googleRankPosition = null;
-      let googleRankResults = [];
-      let googleTopCompetitors = [];
 
       const lead = {
         name: i.title,
@@ -444,10 +382,9 @@ export const scrapeLeads = async (req, res) => {
         jd_whatsapp_exists: jdWhatsapp.found,
         jd_whatsapp_number: jdWhatsapp.number,
 
-        google_rank_position: googleRankPosition,
-        google_rank_results: googleRankResults,
-        google_rank_top_competitors: googleTopCompetitors,
-
+        google_rank_position: null,
+        google_rank_results: [],
+        google_rank_top_competitors: [],
         google_rank_keyword: `${i.title} ${location}`,
 
         followup: {
@@ -461,9 +398,6 @@ export const scrapeLeads = async (req, res) => {
       leads.push(lead);
     }
 
-    /* ----------------------------------------------------
-       UPSERT INTO DATABASE
-    ---------------------------------------------------- */
     if (leads.length) {
       const ops = leads.map((l) => {
         const { name, phone, createdAt, followup, ...rest } = l;
@@ -490,8 +424,6 @@ export const scrapeLeads = async (req, res) => {
       await Lead.bulkWrite(ops, { ordered: false });
     }
 
-    console.log("✅ SCRAPE COMPLETE — SAVED:", leads.length);
-
     res.json({
       message: "Scrape complete",
       saved: leads.length,
@@ -507,10 +439,9 @@ export const scrapeLeads = async (req, res) => {
 };
 
 /* ----------------------------------------------------
-   GETTERS (Unchanged)
+   GETTERS
 ---------------------------------------------------- */
 export const getLeadById = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const lead = await Lead.findById(req.params.id);
     if (!lead) return res.status(404).json({ message: "Lead not found" });
@@ -522,7 +453,6 @@ export const getLeadById = async (req, res) => {
 };
 
 export const getLeads = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const leads = await Lead.find({}).sort({ createdAt: -1 });
     res.json(leads);
@@ -532,7 +462,6 @@ export const getLeads = async (req, res) => {
 };
 
 export const exportCSV = async (req, res) => {
-  // ... (implementation unchanged)
   try {
     const leads = await Lead.find({});
     const csv = generateCSV(leads);

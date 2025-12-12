@@ -1,6 +1,22 @@
+/* ------------------------------------------------------
+   LOAD ENV (ESM SAFE)
+------------------------------------------------------ */
+import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
-dotenv.config();
 
+// Resolve __dirname since ESM doesn't provide it
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Force dotenv to load .env from root folder
+dotenv.config({ path: path.join(__dirname, ".env") });
+
+console.log("🔑 Loaded SERP_KEYS:", process.env.SERP_KEYS);
+
+/* ------------------------------------------------------
+   IMPORTS
+------------------------------------------------------ */
 import express from "express";
 import cors from "cors";
 import cron from "node-cron";
@@ -16,32 +32,31 @@ import kvRoutes from "./src/routes/kvRoutes.js";
 import { startInstagramCron } from "./src/cron/instagramCron.js";
 import { runFollowupCron } from "./src/cron/followupChecker.js";
 
+/* ------------------------------------------------------
+   INIT APP
+------------------------------------------------------ */
 const app = express();
-
-// Disable caching
 app.disable("etag");
 
 /* ------------------------------------------------------
-   ⭐ FIXED CORS — ALLOWS ALL SUBDOMAINS OF iqsync.in
+   ⭐ CORS — ALLOW iqsync.in + SUBDOMAINS + LOCALHOST
 ------------------------------------------------------ */
-
-const rootDomainRegex = /\.?iqsync\.in$/;  
-// matches: iqsync.in, www.iqsync.in, anything.iqsync.in
+const rootDomainRegex = /\.?iqsync\.in$/;
 
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // Postman/mobile apps
+      if (!origin) return callback(null, true); // mobile apps, postman, server-to-server
 
       try {
         const hostname = new URL(origin).hostname;
 
-        // 1️⃣ Allow localhost for development
+        // Localhost allowed
         if (hostname === "localhost" || hostname === "127.0.0.1") {
           return callback(null, true);
         }
 
-        // 2️⃣ Allow iqsync.in + unlimited subdomains
+        // iqsync.in + *.iqsync.in
         if (rootDomainRegex.test(hostname)) {
           return callback(null, true);
         }
@@ -53,18 +68,16 @@ app.use(
         return callback(new Error("CORS error"));
       }
     },
-
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
 
-// FIX preflight
-app.options("*", cors());
+app.options("*", cors()); // Preflight fix
 
 /* ------------------------------------------------------
-   BODY PARSER
+   BODY PARSING
 ------------------------------------------------------ */
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
@@ -89,7 +102,7 @@ app.get("/", (req, res) => {
 });
 
 /* ------------------------------------------------------
-   DATABASE + SERVER START
+   START DB + SERVER
 ------------------------------------------------------ */
 connectDB();
 
