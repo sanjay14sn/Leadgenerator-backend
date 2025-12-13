@@ -2,17 +2,9 @@
    LOAD ENV (ESM SAFE)
 ------------------------------------------------------ */
 import path from "path";
-import { fileURLToPath } from "url";
 import dotenv from "dotenv";
 
-// Resolve __dirname since ESM doesn't provide it
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Force dotenv to load .env from root folder
-dotenv.config({ path: path.join(__dirname, ".env") });
-
-console.log("🔑 Loaded SERP_KEYS:", process.env.SERP_KEYS);
+dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 /* ------------------------------------------------------
    IMPORTS
@@ -20,15 +12,23 @@ console.log("🔑 Loaded SERP_KEYS:", process.env.SERP_KEYS);
 import express from "express";
 import cors from "cors";
 import cron from "node-cron";
+import bcrypt from "bcryptjs";
 
 import connectDB from "./src/config/db.js";
 
+/* ROUTES */
+import authRoutes from "./src/routes/authRoutes.js";
+import adminRoutes from "./src/routes/adminRoutes.js";
 import leadRoutes from "./src/routes/leadRoutes.js";
 import aiRoutes from "./src/routes/aiRoutes.js";
 import instagramRoutes from "./src/routes/instagramRoutes.js";
 import deployRoutes from "./src/routes/deployRoutes.js";
 import kvRoutes from "./src/routes/kvRoutes.js";
 
+/* MODELS */
+import User from "./src/models/User.js";
+
+/* CRONS */
 import { startInstagramCron } from "./src/cron/instagramCron.js";
 import { runFollowupCron } from "./src/cron/followupChecker.js";
 
@@ -39,34 +39,26 @@ const app = express();
 app.disable("etag");
 
 /* ------------------------------------------------------
-   ⭐ CORS — ALLOW iqsync.in + SUBDOMAINS + LOCALHOST
+   CORS CONFIG
 ------------------------------------------------------ */
-const rootDomainRegex = /\.?iqsync\.in$/;
-
 app.use(
   cors({
     origin: function (origin, callback) {
-      if (!origin) return callback(null, true); // mobile apps, postman, server-to-server
+      if (!origin) return callback(null, true);
 
-      try {
-        const hostname = new URL(origin).hostname;
+      const allowed = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "https://iqsync.in",
+        /\.iqsync\.in$/,
+      ];
 
-        // Localhost allowed
-        if (hostname === "localhost" || hostname === "127.0.0.1") {
-          return callback(null, true);
-        }
+      if (allowed.includes(origin)) return callback(null, true);
+      if (allowed.some((rule) => rule instanceof RegExp && rule.test(origin)))
+        return callback(null, true);
 
-        // iqsync.in + *.iqsync.in
-        if (rootDomainRegex.test(hostname)) {
-          return callback(null, true);
-        }
-
-        console.log("❌ BLOCKED ORIGIN:", origin);
-        return callback(new Error("CORS blocked: " + origin));
-      } catch (err) {
-        console.log("❌ Invalid Origin:", origin);
-        return callback(new Error("CORS error"));
-      }
+      console.log("❌ BLOCKED ORIGIN:", origin);
+      return callback(new Error("CORS Blocked: " + origin));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -74,7 +66,7 @@ app.use(
   })
 );
 
-app.options("*", cors()); // Preflight fix
+app.options("*", cors());
 
 /* ------------------------------------------------------
    BODY PARSING
@@ -85,6 +77,8 @@ app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 /* ------------------------------------------------------
    ROUTES
 ------------------------------------------------------ */
+app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
 app.use("/api/leads", leadRoutes);
 app.use("/api/ai", aiRoutes);
 app.use("/api/instagram", instagramRoutes);
@@ -92,25 +86,62 @@ app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 
 /* ------------------------------------------------------
-   TEST ROUTE
+   HEALTH CHECK
 ------------------------------------------------------ */
 app.get("/", (req, res) => {
   res.json({
     status: "OK",
-    message: "Lead Generator Backend Running 🚀",
+    message: "IQSync Lead Generator Backend Running 🚀",
   });
 });
 
 /* ------------------------------------------------------
-   START DB + SERVER
+   CREATE DEFAULT SUPER ADMIN
 ------------------------------------------------------ */
-connectDB();
+async function createSuperAdmin() {
+  const email = process.env.ADMIN_DEFAULT_EMAIL;
+  const password = process.env.ADMIN_DEFAULT_PASSWORD;
 
-const PORT = process.env.PORT || 8080;
+  if (!email || !password) {
+    console.log(
+      "⚠️ ADMIN_DEFAULT_EMAIL or ADMIN_DEFAULT_PASSWORD not set in .env"
+    );
+    return;
+  }
 
-app.listen(PORT, () => {
-  console.log(`🚀 Backend running on PORT ${PORT}`);
-});
+  const exists = await User.findOne({ email });
+  if (exists) {
+    console.log("✅ Super Admin already exists:", email);
+    return;
+  }
+
+  const hashed = await bcrypt.hash(password, 10);
+
+  await User.create({
+    email,
+    password: hashed,
+    role: "SUPER_ADMIN",
+    isActive: true,
+  });
+
+  console.log("🎉 Super Admin created:", email);
+}
+
+/* ------------------------------------------------------
+   START SERVER + DB
+------------------------------------------------------ */
+const PORT = process.env.PORT || 5010;
+
+connectDB()
+  .then(createSuperAdmin)
+  .then(() => {
+    app.listen(PORT, () => {
+      console.log(`🚀 Backend running on PORT ${PORT}`);
+    });
+  })
+  .catch((err) => {
+    console.error("❌ Server failed to start:", err);
+  });
 
 /* ------------------------------------------------------
    CRON JOBS

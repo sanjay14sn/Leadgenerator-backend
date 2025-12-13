@@ -30,14 +30,22 @@ ${JSON.stringify(business, null, 2)}
       }),
     });
 
-    const json = await resp.json();
+    const json = await resp.json().catch(() => null);
+    const text = json?.choices?.[0]?.message?.content;
 
-    const text =
-      json.choices?.[0]?.message?.content || "";
+    // 🛑 GUARD: empty or invalid response
+    if (!text || text.length < 5) {
+      return { exact: "", suggestions: [] };
+    }
 
-    return JSON.parse(text);
+    // 🛑 GUARD: safe JSON parse
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { exact: "", suggestions: [] };
+    }
   } catch (e) {
-    console.log("Instagram AI error:", e);
+    console.log("Instagram AI error:", e.message);
     return { exact: "", suggestions: [] };
   }
 }

@@ -1,26 +1,43 @@
 export function generateFullHTML(lead) {
-  const name = lead.name || "HappySteps Preschool";
+  const name = lead.name || "Your Company";
   const phone = lead.phone || "";
-  const email = lead.email || "";
-  const address = lead.address || "Your Preschool Address";
-  const hero_title = lead.hero_title || "Play. Learn. Grow Together.";
-  const hero_subtitle =
+  const email = lead.email || "info@company.com";
+  const address = lead.address || "Your Business Address";
+  const heroTitle = lead.hero_title || "Unlock Your Business's Full Potential";
+  const heroSubtitle =
     lead.hero_subtitle ||
-    "A joyful preschool where your child learns through fun, creativity, activities, and caring guidance.";
-  const cta_button = lead.cta_button || "Book a School Visit";
+    "Trusted by thousands of customers. Built for growth and success.";
+  const cta = lead.cta_button || "Get Started Today!";
   const description =
     lead.description ||
-    "We help children grow confidently through guided play, storytelling, activities & social connection.";
+    "We help businesses grow with high-quality services, reliable support, and affordable pricing.";
+  const thumbnail =
+    lead.thumbnail ||
+    "https://images.pexels.com/photos/774909/pexels-photo-774909.jpeg";
 
   const encodedAddress = encodeURIComponent(address);
   const mapSrc = `https://maps.google.com/maps?q=${encodedAddress}&output=embed`;
 
-  const waQuick = `https://wa.me/${phone}?text=Hi%20I%20visited%20your%20website.%20I%20want%20to%20know%20more%20about%20your%20preschool.`;
+  const testimonials = lead.testimonials?.length
+    ? lead.testimonials.slice(0, 3)
+    : [
+        {
+          name: "Raj Patel",
+          text: "Great service and amazing quality!",
+        },
+        {
+          name: "Ananya Sharma",
+          text: "Professional team and excellent support.",
+        },
+        {
+          name: "Vikram Singh",
+          text: "Highly recommended for local businesses.",
+        },
+      ];
 
   return `
 <!DOCTYPE html>
 <html lang="en">
-
 <head>
 <meta charset="UTF-8" />
 <title>${name}</title>
@@ -29,339 +46,225 @@ export function generateFullHTML(lead) {
 <style>
 body {
   margin: 0;
-  font-family: 'Inter', sans-serif;
-  background: #fff7f1;
-  color: #222;
+  font-family: Inter, Arial, sans-serif;
+  background: #f9fafb;
+  color: #1f2937;
 }
 
-/* -------------------------
-   TOP APP BAR
-------------------------- */
+/* WRAPPER */
+.wrapper {
+  max-width: 1200px;
+  margin: auto;
+  background: white;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+}
+
+/* HEADER */
 header {
-  background: #ff7ac3;
-  padding: 18px 25px;
+  background: #5b21b6;
+  color: white;
+  padding: 20px 32px;
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+header h1 {
+  font-size: 26px;
+  font-weight: 900;
+}
+header span {
+  color: #2dd4bf;
+}
+
+/* HERO */
+.hero {
+  padding: 80px 32px;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 48px;
+}
+.hero h2 {
+  font-size: 48px;
+  font-weight: 900;
+}
+.hero p {
+  font-size: 20px;
+  margin-top: 16px;
+  color: #4b5563;
+}
+.hero-buttons {
+  margin-top: 32px;
+}
+.hero-buttons a {
+  padding: 14px 28px;
+  border-radius: 10px;
+  font-weight: 700;
+  text-decoration: none;
+  margin-right: 12px;
+}
+.primary-btn {
+  background: #6d28d9;
   color: white;
 }
-.logo {
-  font-size: 22px;
-  font-weight: 900;
-}
-.enroll-btn {
-  padding: 10px 18px;
-  background: white;
-  color: #ff2e87;
-  font-weight: 700;
-  border-radius: 20px;
-  text-decoration: none;
+.secondary-btn {
+  border: 1px solid #d1d5db;
+  color: #6d28d9;
 }
 
-/* -------------------------
-   HERO SECTION
-------------------------- */
-.hero-section {
-  padding: 50px 25px;
-}
-.hero-title {
-  font-size: 42px;
-  font-weight: 900;
-  line-height: 1.1;
-}
-.hero-subtitle {
-  margin-top: 15px;
-  font-size: 17px;
-  max-width: 420px;
-}
-
-/* CARDS */
-.card-row {
-  display: flex;
-  gap: 18px;
-  margin-top: 40px;
-  overflow-x: auto;
-  padding-bottom: 10px;
-}
-.pixel-card {
-  min-width: 260px;
-  border-radius: 28px;
-  padding: 25px;
-  position: relative;
-  color: black;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.08);
-}
-.pixel-card img {
-  position: absolute;
-  bottom: 14px;
-  right: 14px;
-  width: 110px;
-}
-
-/* -------------------------
-   INTRO SECTION
-------------------------- */
-.intro {
-  padding: 40px 25px;
-}
-.intro-text {
-  font-size: 17px;
-  line-height: 1.6;
-}
-.emoji-row {
-  margin-top: 18px;
-  font-size: 30px;
-}
-
-/* -------------------------
-   FEATURE CARDS
-------------------------- */
-.feature-section {
-  padding: 40px 25px;
-}
-.feature-card {
-  padding: 25px;
-  background: white;
-  border-radius: 18px;
-  margin-bottom: 28px;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.07);
-}
-.feature-title {
-  font-size: 22px;
-  font-weight: 900;
-}
-.feature-number {
-  float: right;
-  font-size: 32px;
-  font-weight: 900;
-  color: #ff7ac3;
-}
-.feature-img {
-  margin-top: 20px;
+/* HERO IMAGE */
+.hero img {
   width: 100%;
-  height: 180px;
-  border-radius: 15px;
+  height: 320px;
   object-fit: cover;
+  border-radius: 16px;
 }
 
-/* -------------------------
-   REVIEWS (FIXED IMAGE SIZE)
-------------------------- */
-.review-section {
-  padding: 40px 25px;
-}
-.review-title {
-  text-align: center;
-  font-size: 22px;
-  font-weight: 900;
-  color: #ff7ac3;
-}
-.review-grid {
-  margin-top: 25px;
+/* ABOUT + CAPABILITIES */
+.split {
   display: grid;
+  grid-template-columns: 1fr 1fr;
+  background: #f3f4f6;
+  border-top: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+}
+.split > div {
+  padding: 48px;
+}
+.capabilities {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
   gap: 20px;
 }
-.review-card {
+.cap-card {
+  background: white;
   padding: 20px;
-  background: white;
-  border-radius: 20px;
-  box-shadow: 0 3px 12px rgba(0,0,0,0.07);
-}
-.review-card img {
-  width: 100%;
-  height: 180px;
-  object-fit: cover;
-  border-radius: 15px;
+  border-radius: 14px;
+  box-shadow: 0 8px 20px rgba(0,0,0,0.08);
 }
 
-/* -------------------------
-   FAQ
-------------------------- */
-.faq {
-  padding: 40px 25px;
+/* TESTIMONIALS + MAP */
+.section {
+  padding: 64px 32px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 48px;
 }
-.faq h2 {
-  font-size: 24px;
-  font-weight: 900;
-}
-.faq-item {
-  margin-top: 15px;
-  background: white;
-  padding: 16px;
-  border-radius: 12px;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.05);
-}
-.faq-item summary {
-  font-weight: 700;
-  cursor: pointer;
+.review {
+  background: #f9fafb;
+  padding: 20px;
+  border-left: 5px solid #6d28d9;
+  border-radius: 8px;
+  margin-bottom: 20px;
 }
 
-/* -------------------------
-   MAP
-------------------------- */
-.map-box {
-  padding: 40px 25px;
-}
-iframe {
-  width: 100%;
-  height: 300px;
-  border: 0;
-  border-radius: 18px;
-}
-
-/* -------------------------
-   CTA
-------------------------- */
-.bottom-cta {
-  padding: 40px 25px;
+/* CTA */
+.cta {
+  background: #6d28d9;
+  color: white;
+  padding: 64px 32px;
   text-align: center;
 }
-.bottom-cta h2 {
-  font-size: 30px;
+.cta a {
+  background: white;
+  color: #6d28d9;
+  padding: 16px 36px;
+  border-radius: 14px;
   font-weight: 900;
-}
-.contact-btn {
-  margin-top: 20px;
-  padding: 12px 22px;
-  background: #ff7ac3;
-  color: white;
-  border-radius: 25px;
   text-decoration: none;
 }
 
 /* FOOTER */
 footer {
+  background: #111827;
+  color: #9ca3af;
   text-align: center;
-  padding: 20px;
-  color: #777;
+  padding: 24px;
   font-size: 14px;
+}
+
+/* RESPONSIVE */
+@media(max-width: 900px) {
+  .hero, .split, .section {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
 </head>
 
 <body>
 
+<div class="wrapper">
+
 <header>
-  <div class="logo">${name}</div>
-  <a class="enroll-btn" href="${waQuick}">Enroll Now</a>
+  <h1>${name.split(" ")[0]} <span>${name.split(" ")[1] || ""}</span></h1>
+  <div>${email} | ${phone}</div>
 </header>
 
-<section class="hero-section">
-  <h1 class="hero-title">${hero_title}</h1>
-  <p class="hero-subtitle">${hero_subtitle}</p>
-
-  <div class="card-row">
-
-    <div class="pixel-card" style="background:#4fa3ff; transform:rotate(-2deg);">
-      <h2>500+</h2>
-      <p style="font-weight:700; margin-top:35px;">Happy Kids</p>
-      <p style="font-size:14px; opacity:0.8;">Growing & learning every day.</p>
-      <img src="https://i.imgur.com/U7MZyus.png" />
+<section class="hero">
+  <div>
+    <h2>${heroTitle}</h2>
+    <p>${heroSubtitle}</p>
+    <div class="hero-buttons">
+      <a class="primary-btn" href="#">${cta}</a>
+      <a class="secondary-btn" href="#">Discover More</a>
     </div>
+  </div>
 
-    <div class="pixel-card" style="background:#ffd96b; transform:rotate(1deg);">
-      <h2>Daily Fun</h2>
-      <p style="font-size:15px; opacity:0.8;">Activities, crafts & creativity.</p>
-      <img src="https://i.imgur.com/R0yEJxJ.png" />
-    </div>
-
-    <div class="pixel-card" style="background:#8ee6b5; transform:rotate(-1deg);">
-      <h2>50+</h2>
-      <p style="font-weight:700; margin-top:35px;">Caring Teachers</p>
-      <p style="font-size:14px; opacity:0.8;">Loving, trained & experienced.</p>
-      <img src="https://i.imgur.com/xgJXUHw.png" />
-    </div>
-
-    <div class="pixel-card" style="background:#c7b4ff; transform:rotate(2deg);">
-      <h2>Safe Space</h2>
-      <p style="font-size:15px; opacity:0.8;">Secure & joyful environment.</p>
-      <img src="https://i.imgur.com/YOeOlqD.png" />
-    </div>
-
+  <div>
+    <img src="${thumbnail}" />
+    <p style="margin-top:12px;font-weight:700;">📞 ${phone}</p>
   </div>
 </section>
 
-<section class="intro">
-  <div class="intro-text">${description}</div>
-  <div class="emoji-row">😊 🧒 👧 🎨 🧩</div>
-</section>
-
-<section class="feature-section">
-  <div class="feature-card">
-    <div class="feature-title">Find Nearby Preschool</div>
-    <div class="feature-number">01</div>
-    <img src="https://images.unsplash.com/photo-1588072432836-e10032774350" class="feature-img" />
+<section class="split">
+  <div>
+    <h3>About Us</h3>
+    <p>${description}</p>
   </div>
 
-  <div class="feature-card">
-    <div class="feature-title">Live Teacher Updates</div>
-    <div class="feature-number">02</div>
-    <img src="https://plus.unsplash.com/premium_photo-1661385926819-5e09f7613ef3?q=80&w=2071&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" class="feature-img" />
-  </div>
-
-  <div class="feature-card">
-    <div class="feature-title">Daily Activity Feed</div>
-    <div class="feature-number">03</div>
-    <img src="https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9" class="feature-img" />
-  </div>
-
-  <div class="feature-card">
-    <div class="feature-title">Parents Community</div>
-    <div class="feature-number">04</div>
-    <img src="https://images.unsplash.com/photo-1600880292089-90a7e086ee0c" class="feature-img" />
-  </div>
-</section>
-
-<section class="review-section">
-  <div class="review-title">Trusted by 3,000+ Parents</div>
-
-  <div class="review-grid">
-    <div class="review-card">
-      <img src="https://images.unsplash.com/photo-1564429238817-393bd4286b2d?q=80&w=1674&auto=format&fit=crop&ixlib=rb-4.1.0&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D" />
-      <div class="review-text"><b>${name}</b>: “Amazing environment. Kids enjoy every day!”</div>
-    </div>
-
-    <div class="review-card">
-      <img src="https://images.unsplash.com/photo-1522335789203-aabd1fc54bc9" />
-      <div class="review-text"><b>Parent</b>: “Very safe, clean, and joyful.”</div>
+  <div>
+    <h3>Our Capabilities</h3>
+    <div class="capabilities">
+      <div class="cap-card">⭐ Premium Quality</div>
+      <div class="cap-card">⚡ Fast Delivery</div>
+      <div class="cap-card">📞 Customer Support</div>
+      <div class="cap-card">💰 Affordable Pricing</div>
     </div>
   </div>
 </section>
 
-<section class="faq">
-  <h2>Questions? We got you.</h2>
+<section class="section">
+  <div>
+    <h3>What Our Clients Say</h3>
+    ${testimonials
+      .map(
+        (r) => `
+      <div class="review">
+        <p>"${r.text}"</p>
+        <b>${r.name}</b>
+      </div>`
+      )
+      .join("")}
+  </div>
 
-  <details class="faq-item">
-    <summary>What age groups do you accept?</summary>
-    We accept children aged 2–6 years.
-  </details>
-
-  <details class="faq-item">
-    <summary>How do I enroll?</summary>
-    Contact us through WhatsApp or visit the preschool.
-  </details>
-
-  <details class="faq-item">
-    <summary>Safety measures?</summary>
-    CCTV, hygiene protocols, trained staff & child-safe facilities.
-  </details>
+  <div>
+    <h3>Find Us</h3>
+    <iframe src="${mapSrc}" width="100%" height="300" style="border:0;border-radius:16px;"></iframe>
+    <p style="margin-top:12px;">📍 ${address}</p>
+  </div>
 </section>
 
-<section class="map-box">
-  <iframe src="${mapSrc}"></iframe>
-  <p><b>Address:</b> ${address}</p>
-  <p><b>Phone:</b> ${phone}</p>
-  <p><b>Email:</b> ${email}</p>
-</section>
-
-<section class="bottom-cta">
-  <h2>Level up your child’s future.</h2>
-  <a href="${waQuick}" class="contact-btn">${cta_button}</a>
+<section class="cta">
+  <h2>Ready to Grow?</h2>
+  <p>Join thousands of successful businesses today.</p>
+  <a href="#">${cta}</a>
 </section>
 
 <footer>
-  © ${new Date().getFullYear()} ${name}
+  © ${new Date().getFullYear()} ${name}. All rights reserved.
 </footer>
+
+</div>
 
 </body>
 </html>

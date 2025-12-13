@@ -1,49 +1,57 @@
-// src/routes/leadRoutes.js
-
 import express from "express";
 import {
   scrapeLeads,
   getLeads,
   exportCSV,
   getLeadById,
-  updateLeadAndPublish, // Renamed controller
-  updateLeadData,       // NEW controller for simple data/notes
+  updateLeadAndPublish,
+  updateLeadData,
   logWhatsAppSent,
   trackWhatsAppRedirect,
   trackWebsiteOpen,
   updateFollowupStatus,
 } from "../controllers/leadController.js";
 
+import { protect } from "../middleware/authMiddleware.js";
+
 const router = express.Router();
 
-// SCRAPE LEADS
-router.post("/scrape", scrapeLeads);
+/* ----------------------------------------------------
+   🔐 PROTECTED ROUTES (JWT REQUIRED)
+---------------------------------------------------- */
 
-// GET ALL LEADS
-router.get("/", getLeads);
+// Scrape leads (Google Maps → DB)
+router.post("/scrape", protect, scrapeLeads);
 
-// EXPORT CSV
-router.get("/export", exportCSV);
+// Get all leads for logged-in user
+router.get("/", protect, getLeads);
 
-// GET SINGLE LEAD
-router.get("/:id", getLeadById);
+// Export CSV
+router.get("/export", protect, exportCSV);
 
-// UPDATE LEAD DATA (Used by frontend for adding notes/simple updates)
-// The frontend's `addNote` logic will now hit this faster endpoint.
-router.patch("/:id", updateLeadData); 
+// Get single lead
+router.get("/:id", protect, getLeadById);
 
-// UPDATE LEAD AND PUBLISH WEBSITE (For website builder feature)
-router.patch("/:id/publish", updateLeadAndPublish); // New dedicated route
+// Update lead fields
+router.patch("/:id", protect, updateLeadData);
 
-// LOG WHATSAPP SENT
+// Update + publish website
+router.patch("/:id/publish", protect, updateLeadAndPublish);
+
+// Update follow-up status
+router.post("/:id/update-status", protect, updateFollowupStatus);
+
+/* ----------------------------------------------------
+   🌍 PUBLIC ROUTES (NO AUTH)
+---------------------------------------------------- */
+
+// Log WhatsApp sent
 router.post("/:id/whatsapp-log", logWhatsAppSent);
 
-// TRACK WHATSAPP REDIRECT
+// WhatsApp redirect tracking
 router.get("/w/:id", trackWhatsAppRedirect);
 
-// TRACK WEBSITE OPEN (Pixel)
+// Website open tracking pixel
 router.get("/open/:id", trackWebsiteOpen);
-
-router.post("/:id/update-status", updateFollowupStatus);
 
 export default router;

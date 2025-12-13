@@ -1,23 +1,26 @@
 import mongoose from "mongoose";
+
+/* ----------------------------------------------------
+   FOLLOW-UP HISTORY
+---------------------------------------------------- */
 const followupHistorySchema = new mongoose.Schema({
-  action: { type: String, required: true },   // e.g. "WHATSAPP_SENT"
+  action: { type: String, required: true }, // e.g., "WHATSAPP_SENT"
   message: { type: String, default: "" },
   timestamp: { type: Date, default: Date.now },
 });
 
 /* ----------------------------------------------------
-   FOLLOW-UP SYSTEM
+   FOLLOW-UP SCHEMA
 ---------------------------------------------------- */
 const followupSchema = new mongoose.Schema({
   whatsapp_sent_count: { type: Number, default: 0 },
   last_whatsapp_sent: { type: Date, default: null },
 
-  // Auto-reminder flags for cron
+  // Cron-based auto-reminders
   day1_done: { type: Boolean, default: false },
   day3_done: { type: Boolean, default: false },
   day7_done: { type: Boolean, default: false },
 
-  // Lead status for CRM follow-ups
   status: {
     type: String,
     enum: [
@@ -33,15 +36,26 @@ const followupSchema = new mongoose.Schema({
     default: "PENDING",
   },
 
-  // Timeline history
   history: { type: [followupHistorySchema], default: [] },
 });
 
+/* ----------------------------------------------------
+   MAIN LEAD SCHEMA
+---------------------------------------------------- */
 const leadSchema = new mongoose.Schema(
   {
-    // ------------------------------------------------
-    // BASIC INFO
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       ⭐ USER — Multi-Tenant Owner
+    ---------------------------------------------------- */
+    user: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      required: true,
+    },
+
+    /* ----------------------------------------------------
+       BASIC INFO
+    ---------------------------------------------------- */
     name: { type: String, default: "" },
     phone: { type: String, required: true },
     address: { type: String, default: "" },
@@ -49,15 +63,15 @@ const leadSchema = new mongoose.Schema(
     website: { type: String, default: "" },
     hasWebsite: { type: Boolean, default: false },
 
-    // ------------------------------------------------
-    // CATEGORY INFO
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       CATEGORY INFO
+    ---------------------------------------------------- */
     category: { type: String, default: "" },
     tags: { type: [String], default: [] },
 
-    // ------------------------------------------------
-    // GOOGLE BUSINESS DATA
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       GOOGLE BUSINESS FIELDS
+    ---------------------------------------------------- */
     rating: { type: Number, default: 0 },
     reviews: { type: Number, default: 0 },
     rating_breakdown: { type: Object, default: {} },
@@ -76,27 +90,27 @@ const leadSchema = new mongoose.Schema(
     hours: { type: [String], default: [] },
     open_now_text: { type: String, default: "" },
 
-    // ------------------------------------------------
-    // WHATSAPP DETECTION
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       WHATSAPP DETECTION
+    ---------------------------------------------------- */
     whatsapp: { type: Boolean, default: false },
     jd_whatsapp_exists: { type: Boolean, default: false },
     jd_whatsapp_number: { type: String, default: "" },
 
-    // ------------------------------------------------
-    // INSTAGRAM MATCHING
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       INSTAGRAM MATCHING
+    ---------------------------------------------------- */
     instagram_exact: { type: String, default: "" },
     instagram_suggestions: { type: [String], default: [] },
 
-    // ------------------------------------------------
-    // LEAD SCORE LOGIC
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       LEAD SCORE
+    ---------------------------------------------------- */
     lead_score: { type: Number, default: 0 },
 
-    // ------------------------------------------------
-    // WEBSITE BUILDER FIELDS
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       WEBSITE BUILDER FIELDS
+    ---------------------------------------------------- */
     hero_title: { type: String, default: "" },
     hero_subtitle: { type: String, default: "" },
     cta_title: { type: String, default: "" },
@@ -106,9 +120,9 @@ const leadSchema = new mongoose.Schema(
     web_url: { type: String, default: "" },
     last_published: { type: Date, default: null },
 
-    // ------------------------------------------------
-    // FOLLOW-UP DATA
-    // ------------------------------------------------
+    /* ----------------------------------------------------
+       FOLLOW-UP SYSTEM
+    ---------------------------------------------------- */
     followup: { type: followupSchema, default: () => ({}) },
 
     createdAt: { type: Date, default: Date.now },
@@ -117,8 +131,12 @@ const leadSchema = new mongoose.Schema(
 );
 
 /* ----------------------------------------------------
-   ENSURE UNIQUE PHONE NUMBERS
+   ⭐ UNIQUE INDEX PER USER
 ---------------------------------------------------- */
-leadSchema.index({ phone: 1 }, { unique: true, sparse: true });
+// This prevents conflicts between different users.
+leadSchema.index(
+  { phone: 1, user: 1 },
+  { unique: true, sparse: true }
+);
 
 export default mongoose.model("Lead", leadSchema);

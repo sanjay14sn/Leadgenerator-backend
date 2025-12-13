@@ -1,5 +1,3 @@
-// src/controllers/leadController.js
-
 import dotenv from "dotenv";
 dotenv.config();
 
@@ -9,7 +7,7 @@ import { generateCSV } from "../utils/csvExporter.js";
 import { findInstagram } from "../utils/instagramFinder.js";
 
 /* ----------------------------------------------------
-   MULTI KEY LOADING (SAFE + NO DUPLICATES)
+   LOAD SERP KEYS
 ---------------------------------------------------- */
 const SERP_KEYS = (process.env.SERP_KEYS || "")
   .split(",")
@@ -21,7 +19,7 @@ function getRandomKey() {
 }
 
 /* ----------------------------------------------------
-   HELPERS (Unchanged)
+   HELPERS
 ---------------------------------------------------- */
 async function checkWhatsApp(phone) {
   if (!phone) return false;
@@ -31,78 +29,67 @@ async function checkWhatsApp(phone) {
 
   try {
     const res = await fetch(url, { method: "GET", redirect: "manual" });
-    return res.status === 302 || res.status === 200;
-  } catch (err) {
-    console.error("WhatsApp check failed:", err.message);
+    return res.status === 200 || res.status === 302;
+  } catch {
     return false;
   }
 }
 
-async function checkJustDialWhatsApp(businessName, city = "Chennai") {
+async function checkJustDialWhatsApp(name, city = "Chennai") {
   try {
     const url = `https://www.justdial.com/api/india_api_search.php?query=${encodeURIComponent(
-      businessName + " " + city
+      name + " " + city
     )}`;
 
     const res = await fetch(url);
     const text = await res.text();
 
     try {
-      const data = JSON.parse(text);
-      if (!data.results?.length) return { found: false, number: "" };
+      const json = JSON.parse(text);
+      const jd = json?.results?.[0];
 
-      const jd = data.results[0];
       return {
-        found: !!jd.contacts?.whatsapp,
-        number: jd.contacts?.whatsapp || "",
+        found: !!jd?.contacts?.whatsapp,
+        number: jd?.contacts?.whatsapp || "",
       };
     } catch {
-      console.log("JD WhatsApp error: non-JSON");
       return { found: false, number: "" };
     }
-  } catch (err) {
-    console.log("JD WhatsApp error:", err.message);
+  } catch {
     return { found: false, number: "" };
   }
 }
 
-function scoreLead(lead) {
-  let score = 0;
-
-  if (lead.whatsapp) score += 40;
-  if (lead.jd_whatsapp_exists) score += 30;
-  if (!lead.website) score += 40;
-
-  if (lead.rating >= 4.5) score += 10;
-  if (lead.reviews >= 50) score += 10;
-
-  return score;
+function scoreLead(l) {
+  let s = 0;
+  if (l.whatsapp) s += 40;
+  if (l.jd_whatsapp_exists) s += 30;
+  if (!l.website) s += 40;
+  if (l.rating >= 4.5) s += 10;
+  if (l.reviews >= 50) s += 10;
+  return s;
 }
 
 /* ----------------------------------------------------
-   FOLLOW-UP ACTIONS
+   FOLLOW-UP LOGGING (PUBLIC)
 ---------------------------------------------------- */
 export const logWhatsAppSent = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);
-
     if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    if (!lead.followup) lead.followup = {};
-
-    lead.followup.whatsapp_sent_count =
-      (lead.followup.whatsapp_sent_count || 0) + 1;
-
+    lead.followup.whatsapp_sent_count++;
     lead.followup.last_whatsapp_sent = new Date();
 
     lead.followup.history.push({
       action: "WHATSAPP_SENT",
-      message: "Demo website sent on WhatsApp",
+      message: "Demo website sent",
     });
 
     await lead.save();
+
     res.json({ success: true });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "WhatsApp log failed" });
   }
 };
@@ -110,21 +97,21 @@ export const logWhatsAppSent = async (req, res) => {
 export const trackWhatsAppRedirect = async (req, res) => {
   try {
     const lead = await Lead.findById(req.params.id);
-    if (!lead) return res.status(404).send("Lead not found");
-
-    lead.followup.history.push({
-      action: "WHATSAPP_DELIVERED",
-      message: "Lead clicked WhatsApp message link",
-    });
-
-    await lead.save();
+    if (lead) {
+      lead.followup.history.push({
+        action: "WHATSAPP_DELIVERED",
+        message: "Lead clicked WhatsApp link",
+      });
+      await lead.save();
+    }
 
     const phone = lead.phone.replace(/\D/g, "");
-    const msg = encodeURIComponent("Mam/Sir, here is your sample website.");
-
-    return res.redirect(`https://wa.me/${phone}?text=${msg}`);
-  } catch (err) {
-    console.error(err);
+    return res.redirect(
+      `https://wa.me/${phone}?text=${encodeURIComponent(
+        "Mam/Sir, here is your sample website."
+      )}`
+    );
+  } catch {
     res.status(500).send("Redirect failed");
   }
 };
@@ -136,41 +123,39 @@ export const trackWebsiteOpen = async (req, res) => {
     if (lead) {
       lead.followup.history.push({
         action: "OPENED_WEBSITE",
-        message: "Lead opened the demo website",
+        message: "Lead opened demo website",
       });
       await lead.save();
     }
 
     res.sendStatus(200);
-  } catch (err) {
+  } catch {
     res.sendStatus(500);
   }
 };
 
 export const updateFollowupStatus = async (req, res) => {
   try {
-    const lead = await Lead.findByIdAndUpdate(
-      req.params.id,
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
       { "followup.status": req.body.status },
       { new: true }
     );
 
     res.json({ success: true, lead });
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "Status update failed" });
   }
 };
 
 /* ----------------------------------------------------
-   429-PROOF FETCH WRAPPER
+   SAFE FETCH (Retry 429)
 ---------------------------------------------------- */
 async function safeFetch429(url, attempt = 1) {
-  const MAX_RETRIES = 7;
+  const MAX = 6;
   const WAIT = attempt * 1500;
 
   try {
-    console.log(`🌍 Fetch Attempt ${attempt}: ${url}`);
-
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 20000);
 
@@ -179,92 +164,73 @@ async function safeFetch429(url, attempt = 1) {
 
     if (res.ok) return await res.json();
 
-    if (res.status === 429) {
-      console.log(`❌ 429 RATE LIMIT → Wait ${WAIT}ms and retry`);
-
-      if (attempt === MAX_RETRIES) throw new Error("Too many retries (429)");
-
+    if (res.status === 429 && attempt < MAX) {
       await new Promise((r) => setTimeout(r, WAIT));
-
       url = url.replace(/api_key=[^&]+/, `api_key=${getRandomKey()}`);
-
       return safeFetch429(url, attempt + 1);
     }
 
-    throw new Error(`HTTP ${res.status}`);
+    throw new Error("Failed " + res.status);
   } catch (err) {
-    if (attempt === MAX_RETRIES) throw err;
-
+    if (attempt >= MAX) throw err;
     await new Promise((r) => setTimeout(r, WAIT));
     return safeFetch429(url, attempt + 1);
   }
 }
 
 /* ----------------------------------------------------
-   SIMPLE UPDATE (Notes etc.)
+   UPDATE LEAD (USER OWNED)
 ---------------------------------------------------- */
 export const updateLeadData = async (req, res) => {
   try {
-    const {
-      hero_title,
-      hero_subtitle,
-      cta_title,
-      cta_button,
-      testimonials,
-      generated_images,
-      images,
-      ...updatePayload
-    } = req.body;
+    delete req.body.followup;
+    delete req.body.lead_score;
 
-    const updated = await Lead.findByIdAndUpdate(
-      req.params.id,
-      updatePayload,
-      { new: true, runValidators: true }
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      req.body,
+      { new: true }
     );
 
-    if (!updated) return res.status(404).json({ message: "Lead not found" });
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    res.json(updated);
+    res.json(lead);
   } catch (err) {
-    console.error("SIMPLE UPDATE ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* ----------------------------------------------------
-   UPDATE + PUBLISH (Netlify)
+   UPDATE + PUBLISH (USER OWNED)
 ---------------------------------------------------- */
 export const updateLeadAndPublish = async (req, res) => {
   try {
     const update = { ...req.body };
 
-    if (Array.isArray(req.body.images) && typeof req.body.images[0] === "object") {
-      update.generated_images = req.body.images;
+    if (Array.isArray(update.images)) {
+      update.generated_images = update.images;
       delete update.images;
     }
 
-    const updated = await Lead.findByIdAndUpdate(req.params.id, update, {
-      new: true,
-    });
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      update,
+      { new: true }
+    );
 
-    if (!updated) return res.status(404).json({ message: "Lead not found" });
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
 
-    const pixel = `<img src="https://yourapi.com/open/${updated._id}" width="1" height="1" />`;
+    const pixel = `<img src="${process.env.API_URL}/api/leads/open/${lead._id}" width="1" height="1"/>`;
 
     const html = `
       <html>
-      <head>
-        <title>${updated.name}</title>
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        <style>body{font-family:sans-serif;padding:24px;}</style>
-      </head>
       <body>
         ${pixel}
-        <h1>${updated.hero_title || updated.name}</h1>
-        <p>${updated.hero_subtitle || ""}</p>
-        ${updated.thumbnail ? `<img src="${updated.thumbnail}" />` : ""}
+        <h1>${lead.hero_title || lead.name}</h1>
+        <p>${lead.hero_subtitle || ""}</p>
+        ${lead.thumbnail ? `<img src="${lead.thumbnail}" />` : ""}
         <h2>About</h2>
-        <p>${updated.description || ""}</p>
+        <p>${lead.description || ""}</p>
       </body>
       </html>
     `;
@@ -275,67 +241,48 @@ export const updateLeadAndPublish = async (req, res) => {
       body: html,
     });
 
-    let webUrl = "";
+    const data = await uploadRes.json().catch(() => ({}));
+    lead.web_url = data.url || "";
+    lead.last_published = new Date();
+    await lead.save();
 
-    try {
-      const data = await uploadRes.json();
-      webUrl = data.url || "";
-    } catch {
-      console.error("Netlify returned non-JSON");
-    }
-
-    if (webUrl) {
-      updated.web_url = webUrl;
-      updated.last_published = new Date();
-      await updated.save();
-    }
-
-    res.json({ updated, web_url: webUrl });
+    res.json({ success: true, web_url: lead.web_url });
   } catch (err) {
-    console.error("PUBLISH ERROR:", err);
     res.status(500).json({ message: err.message });
   }
 };
 
 /* ----------------------------------------------------
-   SCRAPE LEADS – 429 PRO MAX VERSION
+   SCRAPE LEADS (USER OWNED)
 ---------------------------------------------------- */
 export const scrapeLeads = async (req, res) => {
   try {
     const { keyword, location } = req.body;
-    console.log("🔥 SCRAPER STARTED:", keyword, location);
-
-    let apiKey = getRandomKey();
 
     let url = `https://www.searchapi.io/api/v1/search?engine=google_maps&q=${encodeURIComponent(
       keyword + " in " + location
-    )}&api_key=${apiKey}&proxy=true&proxy_type=residential&country=IN&domain=google.co.in&device=desktop`;
-
-    console.log("🌍 FETCHING MAP RESULTS...");
+    )}&api_key=${getRandomKey()}&proxy=true&proxy_type=residential`;
 
     const data = await safeFetch429(url);
     const results = data.local_results || [];
 
     const leads = [];
-    const seenPhones = new Set();
+    const seen = new Set();
 
     for (const i of results) {
-      const phone = i.phone || "";
-      if (!phone || seenPhones.has(phone)) continue;
-      seenPhones.add(phone);
+      const phone = i.phone;
+      if (!phone || seen.has(phone)) continue;
+      seen.add(phone);
 
-      const hasWhatsapp = await checkWhatsApp(phone);
-
-      let jdWhatsapp = { found: false, number: "" };
-      if (!hasWhatsapp)
-        jdWhatsapp = await checkJustDialWhatsApp(i.title, location);
+      const hasWA = await checkWhatsApp(phone);
+      const jd = !hasWA ? await checkJustDialWhatsApp(i.title, location) : {};
 
       const images = i.photos?.map((p) => p.src) || [];
-      const thumbnail = i.thumbnail || images[0] || "";
+      const thumbnail = i.thumbnail || images[0];
 
-      let aiIG = { exact: "", suggestions: [] };
+      let ig = { exact: "", suggestions: [] };
       try {
-        aiIG = await findInstagram({
+        ig = await findInstagram({
           name: i.title,
           address: i.address,
           category: i.type,
@@ -346,9 +293,10 @@ export const scrapeLeads = async (req, res) => {
       } catch {}
 
       const lead = {
+        user: req.user.id, // ⭐ VERY IMPORTANT
         name: i.title,
         phone,
-        address: i.address || "",
+        address: i.address,
         website: i.website || "",
         hasWebsite: !!i.website,
 
@@ -364,28 +312,18 @@ export const scrapeLeads = async (req, res) => {
         lat: i.gps_coordinates?.latitude,
         lng: i.gps_coordinates?.longitude,
 
-        static_map: i.gps_coordinates
-          ? `https://maps.googleapis.com/maps/api/staticmap?center=${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}&zoom=15&size=600x300&markers=color:red|${i.gps_coordinates.latitude},${i.gps_coordinates.longitude}`
-          : "",
-
         images,
         thumbnail,
         description: i.description || "",
         hours: i.hours?.weekday_text || [],
         open_now_text: i.hours?.status || "",
-        verified: i.claimed,
 
-        instagram_exact: aiIG.exact,
-        instagram_suggestions: aiIG.suggestions,
+        instagram_exact: ig.exact,
+        instagram_suggestions: ig.suggestions,
 
-        whatsapp: hasWhatsapp,
-        jd_whatsapp_exists: jdWhatsapp.found,
-        jd_whatsapp_number: jdWhatsapp.number,
-
-        google_rank_position: null,
-        google_rank_results: [],
-        google_rank_top_competitors: [],
-        google_rank_keyword: `${i.title} ${location}`,
+        whatsapp: hasWA,
+        jd_whatsapp_exists: jd.found || false,
+        jd_whatsapp_number: jd.number || "",
 
         followup: {
           status: "PENDING",
@@ -398,78 +336,92 @@ export const scrapeLeads = async (req, res) => {
       leads.push(lead);
     }
 
-    if (leads.length) {
-      const ops = leads.map((l) => {
-        const { name, phone, createdAt, followup, ...rest } = l;
 
-        return {
-          updateOne: {
-            filter: { phone },
-            update: {
-              $setOnInsert: {
-                name,
-                phone,
-                createdAt: new Date(),
-                "followup.status": "PENDING",
-                "followup.whatsapp_sent_count": 0,
-                "followup.history": [],
-              },
-              $set: rest,
-            },
-            upsert: true,
-          },
-        };
-      });
+// UPSERT USER-WISE (SAFE & STABLE)
+// ✅ SAFE UPSERT — NO FIELD CONFLICTS
+// ✅ SAFE UPSERT — NO FIELD CONFLICTS
+if (leads.length) {
+  const ops = leads.map((l) => ({
+    updateOne: {
+      filter: {
+        phone: l.phone,
+        user: l.user,
+      },
+      update: {
+        $set: {
+          ...l,
+          updatedAt: new Date(),
+        },
+      },
+      upsert: true,
+    },
+  }));
 
-      await Lead.bulkWrite(ops, { ordered: false });
-    }
+  await Lead.bulkWrite(ops, { ordered: false });
 
-    res.json({
-      message: "Scrape complete",
-      saved: leads.length,
-      leads,
-    });
+
+  const result = await Lead.bulkWrite(ops, { ordered: false });
+
+  console.log("✅ BulkWrite Result:", {
+    inserted: result.upsertedCount,
+    modified: result.modifiedCount,
+    matched: result.matchedCount,
+  });
+}
+
+
+    res.json({ message: "Scrape complete", saved: leads.length, leads });
   } catch (err) {
-    console.error("❌ SCRAPE ERROR:", err);
-    res.status(500).json({
-      error: "Scraping failed",
-      details: err.message,
-    });
+    res.status(500).json({ error: "Scraping failed", details: err.message });
   }
 };
 
 /* ----------------------------------------------------
-   GETTERS
+   GET LEADS (USER OWNED)
 ---------------------------------------------------- */
-export const getLeadById = async (req, res) => {
-  try {
-    const lead = await Lead.findById(req.params.id);
-    if (!lead) return res.status(404).json({ message: "Lead not found" });
-
-    res.json(lead);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-};
-
 export const getLeads = async (req, res) => {
   try {
-    const leads = await Lead.find({}).sort({ createdAt: -1 });
+    const leads = await Lead.find({ user: req.user.id }).sort({
+      createdAt: -1,
+    });
+
     res.json(leads);
-  } catch (err) {
+  } catch {
     res.status(500).json({ message: "Failed to load leads" });
   }
 };
 
+/* ----------------------------------------------------
+   GET SINGLE LEAD (USER OWNED)
+---------------------------------------------------- */
+export const getLeadById = async (req, res) => {
+  try {
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      user: req.user.id,
+    });
+
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+    res.json(lead);
+  } catch {
+    res.status(500).json({ message: "Error fetching lead" });
+  }
+};
+
+/* ----------------------------------------------------
+   EXPORT CSV (USER OWNED)
+---------------------------------------------------- */
 export const exportCSV = async (req, res) => {
   try {
-    const leads = await Lead.find({});
+    const leads = await Lead.find({ user: req.user.id });
+
     const csv = generateCSV(leads);
 
     res.header("Content-Type", "text/csv");
     res.attachment("leads.csv");
     res.send(csv);
-  } catch (err) {
+  } catch {
     res.status(500).json({ error: "CSV export failed" });
   }
 };
