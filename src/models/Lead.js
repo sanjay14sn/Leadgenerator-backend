@@ -125,6 +125,21 @@ const leadSchema = new mongoose.Schema(
     ---------------------------------------------------- */
     followup: { type: followupSchema, default: () => ({}) },
 
+    /* ----------------------------------------------------
+   LEAD ASSIGNMENT + SCHEDULING (PATCH)
+---------------------------------------------------- */
+    assigned_to_id: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Teammate",
+      default: null,
+    },
+    assigned_to_name: { type: String, default: "" },
+    assigned_at: { type: Date, default: null },
+    locked: { type: Boolean, default: false },
+
+    next_followup_date: { type: Date, default: null },
+    next_followup_note: { type: String, default: "" },
+
     createdAt: { type: Date, default: Date.now },
   },
   { versionKey: false }
@@ -134,9 +149,6 @@ const leadSchema = new mongoose.Schema(
    ⭐ UNIQUE INDEX PER USER
 ---------------------------------------------------- */
 // This prevents conflicts between different users.
-leadSchema.index(
-  { phone: 1, user: 1 },
-  { unique: true, sparse: true }
-);
+leadSchema.index({ phone: 1, user: 1 }, { unique: true, sparse: true });
 
 export default mongoose.model("Lead", leadSchema);

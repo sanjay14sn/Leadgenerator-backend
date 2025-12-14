@@ -5,6 +5,8 @@ import fetch from "node-fetch";
 import Lead from "../models/Lead.js";
 import { generateCSV } from "../utils/csvExporter.js";
 import { findInstagram } from "../utils/instagramFinder.js";
+import Teammate from "../models/Teammate.js";
+
 
 /* ----------------------------------------------------
    LOAD SERP KEYS
@@ -451,6 +453,105 @@ export const addFollowupNote = async (req, res) => {
     }
 
     res.json({ success: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+export const assignLead = async (req, res) => {
+  try {
+    const { agent_id } = req.body;
+
+    const lead = await Lead.findOne({
+      _id: req.params.id,
+      user: req.user.id,
+    });
+
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+    // UNASSIGN
+    if (!agent_id) {
+      lead.assigned_to_id = null;
+      lead.assigned_to_name = "";
+      lead.assigned_at = null;
+      lead.locked = false;
+    } else {
+      const agent = await Teammate.findById(agent_id);
+      if (!agent) {
+        return res.status(404).json({ message: "Agent not found" });
+      }
+
+      lead.assigned_to_id = agent._id;
+      lead.assigned_to_name = agent.name;
+      lead.assigned_at = new Date();
+      lead.locked = true;
+    }
+
+    await lead.save();
+    res.json({ success: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+/* ----------------------------------------------------
+   SCHEDULE FOLLOW-UP
+---------------------------------------------------- */
+export const scheduleFollowup = async (req, res) => {
+  try {
+    const { date, note } = req.body;
+
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      {
+        next_followup_date: new Date(date),
+        next_followup_note: note || "",
+      },
+      { new: true }
+    );
+
+    if (!lead) return res.status(404).json({ message: "Lead not found" });
+
+    res.json({ success: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
+/* ----------------------------------------------------
+   AUTO ROUND-ROBIN ASSIGNMENT
+---------------------------------------------------- */
+export const autoAssignLeads = async (req, res) => {
+  try {
+    const agents = await Teammate.find({
+      createdBy: req.user.id,
+      role: "AGENT",
+      isActive: true,
+    });
+
+    if (!agents.length) {
+      return res.status(400).json({ message: "No active agents" });
+    }
+
+    const unassignedLeads = await Lead.find({
+      user: req.user.id,
+      assigned_to_id: null,
+    });
+
+    let index = 0;
+    for (const lead of unassignedLeads) {
+      const agent = agents[index % agents.length];
+
+      lead.assigned_to_id = agent._id;
+      lead.assigned_to_name = agent.name;
+      lead.assigned_at = new Date();
+      lead.locked = true;
+
+      await lead.save();
+      index++;
+    }
+
+    res.json({
+      success: true,
+      assigned: unassignedLeads.length,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

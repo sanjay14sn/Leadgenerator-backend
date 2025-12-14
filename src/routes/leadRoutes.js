@@ -11,51 +11,45 @@ import {
   trackWebsiteOpen,
   updateFollowupStatus,
   addFollowupNote,
+  assignLead,
+  scheduleFollowup,
+  autoAssignLeads,
 } from "../controllers/leadController.js";
 
-import { protect } from "../middleware/authMiddleware.js";
+import { protect, companyOnly } from "../middleware/authMiddleware.js";
 
 const router = express.Router();
 
 /* ----------------------------------------------------
-   🔐 PROTECTED ROUTES (JWT REQUIRED)
+   🔐 PROTECTED ROUTES
 ---------------------------------------------------- */
-
-// 1️⃣ Scrape leads (Google Maps → DB)
 router.post("/scrape", protect, scrapeLeads);
-
-// 2️⃣ Get all leads for logged-in user
 router.get("/", protect, getLeads);
-
-// 3️⃣ Export CSV
 router.get("/export", protect, exportCSV);
-
-// 4️⃣ Get single lead
 router.get("/:id", protect, getLeadById);
-
-// 5️⃣ Update lead basic fields (NO followup updates here)
 router.patch("/:id", protect, updateLeadData);
-
-// 6️⃣ Update + publish website
 router.patch("/:id/publish", protect, updateLeadAndPublish);
-
-// 7️⃣ Update follow-up status (Interested / Not Interested / etc)
 router.post("/:id/update-status", protect, updateFollowupStatus);
-
-// 8️⃣ ✅ ADD FOLLOW-UP NOTE (IMPORTANT)
 router.post("/:id/add-note", protect, addFollowupNote);
 
 /* ----------------------------------------------------
-   🌍 PUBLIC ROUTES (NO AUTH)
+   🔥 NEW CRM ROUTES
 ---------------------------------------------------- */
 
-// Log WhatsApp sent
+// Assign / Unassign lead
+router.post("/:id/assign", protect, assignLead);
+
+// Schedule follow-up
+router.post("/:id/schedule-followup", protect, scheduleFollowup);
+
+// Auto round-robin assignment (COMPANY only)
+router.post("/auto-assign", protect, companyOnly, autoAssignLeads);
+
+/* ----------------------------------------------------
+   🌍 PUBLIC ROUTES
+---------------------------------------------------- */
 router.post("/:id/whatsapp-log", logWhatsAppSent);
-
-// WhatsApp redirect tracking
 router.get("/w/:id", trackWhatsAppRedirect);
-
-// Website open tracking pixel
 router.get("/open/:id", trackWebsiteOpen);
 
 export default router;

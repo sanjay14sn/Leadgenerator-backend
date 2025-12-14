@@ -80,3 +80,43 @@ export const toggleTeammateStatus = async (req, res) => {
 
   res.json({ success: true, isActive: teammate.isActive });
 };
+import Lead from "../models/Lead.js";
+
+/* ----------------------------------------------------
+   TEAM PERFORMANCE METRICS
+---------------------------------------------------- */
+export const getTeammatePerformance = async (req, res) => {
+  try {
+    const teammates = await Teammate.find({
+      createdBy: req.user.id,
+      role: "AGENT",
+    });
+
+    const metrics = {};
+
+    for (const t of teammates) {
+      const totalAssigned = await Lead.countDocuments({
+        user: req.user.id,
+        assigned_to_id: t._id,
+      });
+
+      const completed = await Lead.countDocuments({
+        user: req.user.id,
+        assigned_to_id: t._id,
+        "followup.status": "COMPLETED",
+      });
+
+      metrics[t._id] = {
+        total_assigned: totalAssigned,
+        completed_leads: completed,
+        conversion_rate: totalAssigned
+          ? completed / totalAssigned
+          : 0,
+      };
+    }
+
+    res.json({ metrics });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};
