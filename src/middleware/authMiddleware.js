@@ -10,19 +10,25 @@ export function protect(req, res, next) {
   try {
     const token = header.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    // decoded must contain: id, email, role
     req.user = decoded;
     next();
-  } catch {
+  } catch (err) {
     return res.status(401).json({ message: "Invalid token" });
   }
 }
 
-// Alias (so admin routes still work)
-export const auth = protect;
-
 export function superAdminOnly(req, res, next) {
   if (req.user.role !== "SUPER_ADMIN") {
-    return res.status(403).json({ message: "Access denied" });
+    return res.status(403).json({ message: "SUPER_ADMIN only" });
+  }
+  next();
+}
+
+export function companyOnly(req, res, next) {
+  if (req.user.role !== "COMPANY") {
+    return res.status(403).json({ message: "COMPANY only" });
   }
   next();
 }

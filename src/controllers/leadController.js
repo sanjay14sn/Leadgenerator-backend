@@ -425,3 +425,33 @@ export const exportCSV = async (req, res) => {
     res.status(500).json({ error: "CSV export failed" });
   }
 };
+/* ----------------------------------------------------
+   ADD FOLLOW-UP NOTE (SAFE)
+---------------------------------------------------- */
+export const addFollowupNote = async (req, res) => {
+  try {
+    const { message } = req.body;
+
+    const lead = await Lead.findOneAndUpdate(
+      { _id: req.params.id, user: req.user.id },
+      {
+        $push: {
+          "followup.history": {
+            action: "MANUAL_NOTE",
+            message,
+            timestamp: new Date(),
+          },
+        },
+      },
+      { new: true }
+    );
+
+    if (!lead) {
+      return res.status(404).json({ message: "Lead not found" });
+    }
+
+    res.json({ success: true, lead });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+};

@@ -10,6 +10,7 @@ import {
   trackWhatsAppRedirect,
   trackWebsiteOpen,
   updateFollowupStatus,
+  addFollowupNote,
 } from "../controllers/leadController.js";
 
 import { protect } from "../middleware/authMiddleware.js";
@@ -20,26 +21,29 @@ const router = express.Router();
    🔐 PROTECTED ROUTES (JWT REQUIRED)
 ---------------------------------------------------- */
 
-// Scrape leads (Google Maps → DB)
+// 1️⃣ Scrape leads (Google Maps → DB)
 router.post("/scrape", protect, scrapeLeads);
 
-// Get all leads for logged-in user
+// 2️⃣ Get all leads for logged-in user
 router.get("/", protect, getLeads);
 
-// Export CSV
+// 3️⃣ Export CSV
 router.get("/export", protect, exportCSV);
 
-// Get single lead
+// 4️⃣ Get single lead
 router.get("/:id", protect, getLeadById);
 
-// Update lead fields
+// 5️⃣ Update lead basic fields (NO followup updates here)
 router.patch("/:id", protect, updateLeadData);
 
-// Update + publish website
+// 6️⃣ Update + publish website
 router.patch("/:id/publish", protect, updateLeadAndPublish);
 
-// Update follow-up status
+// 7️⃣ Update follow-up status (Interested / Not Interested / etc)
 router.post("/:id/update-status", protect, updateFollowupStatus);
+
+// 8️⃣ ✅ ADD FOLLOW-UP NOTE (IMPORTANT)
+router.post("/:id/add-note", protect, addFollowupNote);
 
 /* ----------------------------------------------------
    🌍 PUBLIC ROUTES (NO AUTH)

@@ -1,22 +1,70 @@
-import Admin from "../models/Admin.js";
-import { generateJWT } from "../utils/simpleJwt.js";
+import jwt from "jsonwebtoken";
+import User from "../models/User.js";
 
-export const loginAdmin = async (req, res) => {
-  const { email, password } = req.body;
+/* -------------------------------------------------
+   LOGIN (SUPER_ADMIN + COMPANY)
+------------------------------------------------- */
+export const login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  // find admin
-  const admin = await Admin.findOne({ email });
-  if (!admin) return res.status(400).json({ error: "Invalid email or password" });
+    if (!email || !password) {
+      return res.status(400).json({ message: "Email and password required" });
+    }
 
-  const hash = Admin.hashPassword(password);
-  if (hash !== admin.passwordHash) {
-    return res.status(400).json({ error: "Invalid credentials" });
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ message: "Account deactivated" });
+    }
+
+    const match = await user.comparePassword(password);
+    if (!match) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const token = jwt.sign(
+      {
+        id: user._id,
+        email: user.email,
+        role: user.role, // REQUIRED
+      },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+      },
+    });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ message: "Login failed" });
   }
+};
 
-  const token = generateJWT(
-    { id: admin._id, email: admin.email },
-    process.env.JWT_SECRET
-  );
+/* -------------------------------------------------
+   GET CURRENT USER
+------------------------------------------------- */
+export const getMe = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select("-password");
 
-  res.json({ success: true, token });
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    res.json(user);
+  } catch (err) {
+    console.error("Auth /me error:", err);
+    res.status(500).json({ message: "Failed to fetch user" });
+  }
 };

@@ -1,7 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 import { z } from "zod";
-import { generateAndUploadImage } from "../utils/aiImageGenerator.js";
 
 const router = express.Router();
 
@@ -23,7 +22,7 @@ const EnhancedSchema = z.object({
 });
 
 /* -------------------------------------------
-      GEMINI OUTPUT SCHEMA
+  GEMINI STRUCTURED OUTPUT SCHEMA
 ------------------------------------------- */
 const geminiSchema = {
   type: "object",
@@ -35,6 +34,8 @@ const geminiSchema = {
     cta_button: { type: "string" },
     testimonials: {
       type: "array",
+      minItems: 1,
+      maxItems: 1,
       items: {
         type: "object",
         properties: {
@@ -42,11 +43,11 @@ const geminiSchema = {
           quote: { type: "string" },
         },
       },
-      minItems: 1,
-      maxItems: 1,
     },
     images: {
       type: "array",
+      minItems: 3,
+      maxItems: 3,
       items: {
         type: "object",
         properties: {
@@ -54,8 +55,6 @@ const geminiSchema = {
           style: { type: "string" },
         },
       },
-      minItems: 3,
-      maxItems: 3,
     },
   },
   required: [
@@ -70,22 +69,102 @@ const geminiSchema = {
 };
 
 /* -------------------------------------------
-          ENHANCE ROUTE (FINAL VERSION)
+  GEMINI → SEARCH KEYWORD GENERATOR
+------------------------------------------- */
+async function generateSearchKeyword(prompt) {
+  const res = await fetch(
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-goog-api-key": process.env.GEMINI_API_KEY,
+      },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: `
+Convert the following image description into a SHORT
+search keyword (2–4 words max) suitable for stock photo search.
+
+Return ONLY the keyword. No explanation.
+
+Description:
+${prompt}
+                `,
+              },
+            ],
+          },
+        ],
+      }),
+    }
+  );
+
+  const data = await res.json();
+
+  const text =
+    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+
+  if (!text) return "";
+
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, "")
+    .split(" ")
+    .slice(0, 4)
+    .join(" ");
+}
+
+/* -------------------------------------------
+  OPENVERSE IMAGE FETCHER
+------------------------------------------- */
+async function fetchOpenverseImages(query, limit = 5) {
+  const res = await fetch(
+    `https://api.openverse.org/v1/images?q=${encodeURIComponent(
+      query
+    )}&page_size=${limit}`,
+    {
+      headers: {
+        Authorization: `Bearer ${process.env.OPENVERSE_ACCESS_TOKEN}`,
+      },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`Openverse API failed: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.results || [];
+}
+
+/* -------------------------------------------
+  ENHANCE ROUTE
 ------------------------------------------- */
 router.post("/enhance", async (req, res) => {
   try {
     const { lead } = req.body;
 
-    const prompt = `
-Generate high-quality preschool/daycare website content based on:
-
-${JSON.stringify(lead, null, 2)}
-
-Return ONLY JSON that matches the schema.
-    `;
+    if (!lead) {
+      return res.status(400).json({ error: "Lead data required" });
+    }
 
     /* -------------------------------------------
-          CALL GEMINI FOR TEXT CONTENT
+      GEMINI PROMPT FOR CONTENT
+    ------------------------------------------- */
+    const prompt = `
+Generate professional website content for the business below.
+
+Input:
+${JSON.stringify(lead, null, 2)}
+
+Return ONLY JSON that strictly matches the schema.
+`;
+
+    /* -------------------------------------------
+      CALL GEMINI (CONTENT)
     ------------------------------------------- */
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
@@ -106,66 +185,70 @@ Return ONLY JSON that matches the schema.
     );
 
     const data = await response.json();
+    const rawText =
+      data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+    if (!rawText) {
       return res.status(500).json({
-        error: "Gemini returned no output",
-        details: data,
-      });
-    }
-
-    const rawJSON = data.candidates[0].content.parts[0].text;
-
-    let parsed = {};
-    try {
-      parsed = JSON.parse(rawJSON);
-    } catch (err) {
-      console.error("JSON parse error:", err);
-      return res.status(400).json({
-        error: "Gemini returned invalid JSON",
-        raw: rawJSON,
+        error: "Gemini returned empty output",
+        debug: data,
       });
     }
 
     /* -------------------------------------------
-          VALIDATE USING ZOD
+      PARSE + VALIDATE
     ------------------------------------------- */
+    let parsed;
     try {
+      parsed = JSON.parse(rawText);
       EnhancedSchema.parse(parsed);
     } catch (err) {
       return res.status(400).json({
-        error: "Zod validation failed",
-        details: err.errors,
-        raw: parsed,
+        error: "Invalid Gemini response",
+        details: err.errors || err.message,
       });
     }
 
     /* -------------------------------------------
-          GENERATE REAL IMAGES USING GEMINI
-          AND UPLOAD TO CLOUDINARY
+      IMAGE SEARCH PIPELINE
     ------------------------------------------- */
     const generatedImages = [];
 
     for (const img of parsed.images) {
-      const cloudinaryURL = await generateAndUploadImage(img.prompt, img.style);
+      const searchQuery = await generateSearchKeyword(img.prompt);
+      if (!searchQuery) continue;
+
+      const results = await fetchOpenverseImages(searchQuery, 5);
+      if (!results.length) continue;
+
+      const picked = results[0];
 
       generatedImages.push({
         prompt: img.prompt,
         style: img.style,
-        url: cloudinaryURL,
+        search_query: searchQuery,
+        foreign_landing_url: picked.foreign_landing_url,
+        image_url: picked.url,
+        thumbnail: picked.thumbnail,
+        license: picked.license,
+        creator: picked.creator,
+        source: picked.source,
       });
     }
 
     parsed.generated_images = generatedImages;
 
     /* -------------------------------------------
-          SEND FINAL RESULT
+      FINAL RESPONSE
     ------------------------------------------- */
     return res.json({ enhanced: parsed });
 
   } catch (err) {
-    console.error("❌ Enhance Error:", err);
-    res.status(500).json({ error: "Server error", message: err.message });
+    console.error("❌ Enhance API Error:", err);
+    res.status(500).json({
+      error: "Server error",
+      message: err.message,
+    });
   }
 });
 
