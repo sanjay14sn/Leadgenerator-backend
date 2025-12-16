@@ -9,35 +9,56 @@ export async function publishToCloudflareKV(subdomain, html) {
     throw new Error("Missing Cloudflare environment values");
   }
 
-  console.log("🚀 Uploading to Cloudflare KV:", subdomain);
+  if (!subdomain || typeof subdomain !== "string") {
+    throw new Error("Invalid subdomain");
+  }
 
-  // ✅ FIX — save using ONLY subdomain
-  const key = subdomain;
+  console.log("🚀 Uploading to Cloudflare KV");
+  console.log("🌐 Subdomain:", subdomain);
 
-  console.log("📦 KV Key Used:", key);
+  /**
+   * KV KEY RULE
+   * - This key must match what your Worker / Pages expects
+   * - We store HTML under the subdomain name
+   */
+  const kvKey = subdomain;
 
-  const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${encodeURIComponent(
-    key
+  console.log("📦 KV Key:", kvKey);
+
+  const kvApiUrl = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces/${CF_KV_NAMESPACE_ID}/values/${encodeURIComponent(
+    kvKey
   )}`;
 
-  console.log("🌍 Upload URL:", url);
+  console.log("🌍 KV API URL:", kvApiUrl);
 
-  const response = await fetch(url, {
+  const response = await fetch(kvApiUrl, {
     method: "PUT",
     headers: {
       Authorization: `Bearer ${CF_API_TOKEN}`,
-      "Content-Type": "text/html",
+      "Content-Type": "text/html; charset=utf-8",
     },
     body: html,
   });
 
-  const raw = await response.text();
-  console.log("📨 Cloudflare Response:", raw);
+  const responseText = await response.text();
+  console.log("📨 Cloudflare Raw Response:", responseText);
 
   if (!response.ok) {
-    throw new Error("KV Upload failed: " + raw);
+    throw new Error(
+      `Cloudflare KV upload failed (${response.status}): ${responseText}`
+    );
   }
 
-  console.log("✅ Cloudflare KV Upload Success!");
-  return `https://${subdomain}.iqsync.in`;
+  console.log("✅ Cloudflare KV Upload SUCCESS");
+
+  /**
+   * IMPORTANT:
+   * Cloudflare KV does NOT return a site URL.
+   * Your domain routing decides this.
+   */
+  const siteUrl = `https://${subdomain}.iqsync.in`;
+
+  console.log("🔗 Final Website URL:", siteUrl);
+
+  return siteUrl;
 }

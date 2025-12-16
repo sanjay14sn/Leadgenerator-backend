@@ -1,6 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
-import { z } from "zod";
+import { z, ZodError } from "zod";
 
 const router = express.Router();
 
@@ -69,9 +69,19 @@ const geminiSchema = {
 };
 
 /* -------------------------------------------
+  ENV CHECK (LOG ONCE)
+------------------------------------------- */
+console.log("🔐 ENV CHECK", {
+  GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+  OPENVERSE_ACCESS_TOKEN: !!process.env.OPENVERSE_ACCESS_TOKEN,
+});
+
+/* -------------------------------------------
   GEMINI → SEARCH KEYWORD GENERATOR
 ------------------------------------------- */
 async function generateSearchKeyword(prompt) {
+  if (!process.env.GEMINI_API_KEY) return "";
+
   const res = await fetch(
     "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
     {
@@ -89,7 +99,7 @@ async function generateSearchKeyword(prompt) {
 Convert the following image description into a SHORT
 search keyword (2–4 words max) suitable for stock photo search.
 
-Return ONLY the keyword. No explanation.
+Return ONLY the keyword.
 
 Description:
 ${prompt}
@@ -112,7 +122,7 @@ ${prompt}
   return text
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, "")
-    .split(" ")
+    .split(/\s+/)
     .slice(0, 4)
     .join(" ");
 }
@@ -121,19 +131,21 @@ ${prompt}
   OPENVERSE IMAGE FETCHER
 ------------------------------------------- */
 async function fetchOpenverseImages(query, limit = 5) {
+  const headers = {};
+
+  if (process.env.OPENVERSE_ACCESS_TOKEN) {
+    headers.Authorization = `Bearer ${process.env.OPENVERSE_ACCESS_TOKEN}`;
+  }
+
   const res = await fetch(
     `https://api.openverse.org/v1/images?q=${encodeURIComponent(
       query
     )}&page_size=${limit}`,
-    {
-      headers: {
-        Authorization: `Bearer ${process.env.OPENVERSE_ACCESS_TOKEN}`,
-      },
-    }
+    { headers }
   );
 
   if (!res.ok) {
-    throw new Error(`Openverse API failed: ${res.status}`);
+    throw new Error(`Openverse failed: ${res.status}`);
   }
 
   const data = await res.json();
@@ -145,6 +157,12 @@ async function fetchOpenverseImages(query, limit = 5) {
 ------------------------------------------- */
 router.post("/enhance", async (req, res) => {
   try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({
+        error: "GEMINI_API_KEY not configured",
+      });
+    }
+
     const { lead } = req.body;
 
     if (!lead) {
@@ -152,7 +170,7 @@ router.post("/enhance", async (req, res) => {
     }
 
     /* -------------------------------------------
-      GEMINI PROMPT FOR CONTENT
+      GEMINI PROMPT
     ------------------------------------------- */
     const prompt = `
 Generate professional website content for the business below.
@@ -160,11 +178,11 @@ Generate professional website content for the business below.
 Input:
 ${JSON.stringify(lead, null, 2)}
 
-Return ONLY JSON that strictly matches the schema.
+Return ONLY valid JSON that strictly matches the schema.
 `;
 
     /* -------------------------------------------
-      CALL GEMINI (CONTENT)
+      CALL GEMINI
     ------------------------------------------- */
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
@@ -185,19 +203,22 @@ Return ONLY JSON that strictly matches the schema.
     );
 
     const data = await response.json();
-    const rawText =
+
+    let rawText =
       data?.candidates?.[0]?.content?.parts?.[0]?.text;
 
-    if (!rawText) {
-      return res.status(500).json({
-        error: "Gemini returned empty output",
-        debug: data,
-      });
+    if (!rawText || typeof rawText !== "string") {
+      throw new Error("Gemini returned empty or invalid output");
     }
 
     /* -------------------------------------------
-      PARSE + VALIDATE
+      CLEAN + PARSE JSON
     ------------------------------------------- */
+    rawText = rawText
+      .replace(/```json/gi, "")
+      .replace(/```/g, "")
+      .trim();
+
     let parsed;
     try {
       parsed = JSON.parse(rawText);
@@ -205,47 +226,53 @@ Return ONLY JSON that strictly matches the schema.
     } catch (err) {
       return res.status(400).json({
         error: "Invalid Gemini response",
-        details: err.errors || err.message,
+        details:
+          err instanceof ZodError ? err.errors : err.message,
+        raw: rawText,
       });
     }
 
     /* -------------------------------------------
-      IMAGE SEARCH PIPELINE
+      IMAGE PIPELINE (PARALLEL)
     ------------------------------------------- */
-    const generatedImages = [];
+    const generatedImages = await Promise.all(
+      parsed.images.map(async (img) => {
+        try {
+          const searchQuery = await generateSearchKeyword(img.prompt);
+          if (!searchQuery) return null;
 
-    for (const img of parsed.images) {
-      const searchQuery = await generateSearchKeyword(img.prompt);
-      if (!searchQuery) continue;
+          const results = await fetchOpenverseImages(searchQuery, 5);
+          if (!results.length) return null;
 
-      const results = await fetchOpenverseImages(searchQuery, 5);
-      if (!results.length) continue;
+          const picked = results[0];
 
-      const picked = results[0];
+          return {
+            prompt: img.prompt,
+            style: img.style,
+            search_query: searchQuery,
+            foreign_landing_url: picked.foreign_landing_url,
+            image_url: picked.url,
+            thumbnail: picked.thumbnail,
+            license: picked.license,
+            creator: picked.creator,
+            source: picked.source,
+          };
+        } catch {
+          return null;
+        }
+      })
+    );
 
-      generatedImages.push({
-        prompt: img.prompt,
-        style: img.style,
-        search_query: searchQuery,
-        foreign_landing_url: picked.foreign_landing_url,
-        image_url: picked.url,
-        thumbnail: picked.thumbnail,
-        license: picked.license,
-        creator: picked.creator,
-        source: picked.source,
-      });
-    }
-
-    parsed.generated_images = generatedImages;
+    parsed.generated_images = generatedImages.filter(Boolean);
 
     /* -------------------------------------------
-      FINAL RESPONSE
+      SUCCESS
     ------------------------------------------- */
     return res.json({ enhanced: parsed });
 
   } catch (err) {
-    console.error("❌ Enhance API Error:", err);
-    res.status(500).json({
+    console.error("❌ ENHANCE API ERROR:", err);
+    return res.status(500).json({
       error: "Server error",
       message: err.message,
     });

@@ -24,9 +24,14 @@ export const publishWebsite = async (req, res) => {
     lead.web_url = url;
     await lead.save();
 
-    return res.json({ success: true, url });
+    return res.json({
+      success: true,
+      web_url: url,
+    });
   } catch (err) {
     console.error("🔥 Publish Error:", err);
-    return res.status(500).json({ message: "Publish failed", error: err.message });
+    return res
+      .status(500)
+      .json({ message: "Publish failed", error: err.message });
   }
 };

@@ -98,6 +98,11 @@ app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 app.use("/api/teammates", teammateRoutes);
+app.get("/ping", (req, res) => {
+  console.log("🔥 PING HIT");
+  res.send("pong");
+});
+
 
 app.get("/", (req, res) => {
   res.json({ status: "OK", message: "Backend Running 🚀" });
