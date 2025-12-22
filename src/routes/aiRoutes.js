@@ -5,7 +5,7 @@ import { z, ZodError } from "zod";
 const router = express.Router();
 
 /* -------------------------------------------
-  ZOD VALIDATION SCHEMA
+   ZOD VALIDATION SCHEMA (RELAXED & SAFE)
 ------------------------------------------- */
 const EnhancedSchema = z.object({
   hero_title: z.string(),
@@ -13,63 +13,22 @@ const EnhancedSchema = z.object({
   description: z.string(),
   cta_title: z.string(),
   cta_button: z.string(),
-  testimonials: z
-    .array(z.object({ name: z.string(), quote: z.string() }))
-    .length(1),
-  images: z
-    .array(z.object({ prompt: z.string(), style: z.string() }))
-    .length(3),
+  testimonials: z.array(
+    z.object({
+      name: z.string(),
+      quote: z.string(),
+    })
+  ).min(1),
+  images: z.array(
+    z.object({
+      prompt: z.string(),
+      style: z.string(),
+    })
+  ).min(1),
 });
 
 /* -------------------------------------------
-  GEMINI STRUCTURED OUTPUT SCHEMA
-------------------------------------------- */
-const geminiSchema = {
-  type: "object",
-  properties: {
-    hero_title: { type: "string" },
-    hero_subtitle: { type: "string" },
-    description: { type: "string" },
-    cta_title: { type: "string" },
-    cta_button: { type: "string" },
-    testimonials: {
-      type: "array",
-      minItems: 1,
-      maxItems: 1,
-      items: {
-        type: "object",
-        properties: {
-          name: { type: "string" },
-          quote: { type: "string" },
-        },
-      },
-    },
-    images: {
-      type: "array",
-      minItems: 3,
-      maxItems: 3,
-      items: {
-        type: "object",
-        properties: {
-          prompt: { type: "string" },
-          style: { type: "string" },
-        },
-      },
-    },
-  },
-  required: [
-    "hero_title",
-    "hero_subtitle",
-    "description",
-    "cta_title",
-    "cta_button",
-    "testimonials",
-    "images",
-  ],
-};
-
-/* -------------------------------------------
-  ENV CHECK (LOG ONCE)
+   ENV CHECK
 ------------------------------------------- */
 console.log("🔐 ENV CHECK", {
   GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
@@ -77,7 +36,7 @@ console.log("🔐 ENV CHECK", {
 });
 
 /* -------------------------------------------
-  GEMINI → SEARCH KEYWORD GENERATOR
+   GEMINI → SEARCH KEYWORD
 ------------------------------------------- */
 async function generateSearchKeyword(prompt) {
   if (!process.env.GEMINI_API_KEY) return "";
@@ -95,15 +54,7 @@ async function generateSearchKeyword(prompt) {
           {
             parts: [
               {
-                text: `
-Convert the following image description into a SHORT
-search keyword (2–4 words max) suitable for stock photo search.
-
-Return ONLY the keyword.
-
-Description:
-${prompt}
-                `,
+                text: `Convert this description into a short stock photo search keyword (2–4 words). Return ONLY the keyword.\n\n${prompt}`,
               },
             ],
           },
@@ -115,7 +66,10 @@ ${prompt}
   const data = await res.json();
 
   const text =
-    data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    data?.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text)
+      .join("")
+      ?.trim();
 
   if (!text) return "";
 
@@ -128,7 +82,7 @@ ${prompt}
 }
 
 /* -------------------------------------------
-  OPENVERSE IMAGE FETCHER
+   OPENVERSE IMAGE FETCHER
 ------------------------------------------- */
 async function fetchOpenverseImages(query, limit = 5) {
   const headers = {};
@@ -153,7 +107,7 @@ async function fetchOpenverseImages(query, limit = 5) {
 }
 
 /* -------------------------------------------
-  ENHANCE ROUTE
+   ENHANCE ROUTE
 ------------------------------------------- */
 router.post("/enhance", async (req, res) => {
   try {
@@ -170,19 +124,39 @@ router.post("/enhance", async (req, res) => {
     }
 
     /* -------------------------------------------
-      GEMINI PROMPT
+       GEMINI PROMPT (STRICT & SAFE)
     ------------------------------------------- */
     const prompt = `
-Generate professional website content for the business below.
+You are a professional website content generator.
 
-Input:
+STRICT RULES:
+- Output ONLY valid JSON
+- No markdown
+- No explanation
+- No code block
+- JSON ONLY
+
+JSON FORMAT:
+{
+  "hero_title": string,
+  "hero_subtitle": string,
+  "description": string,
+  "cta_title": string,
+  "cta_button": string,
+  "testimonials": [
+    { "name": string, "quote": string }
+  ],
+  "images": [
+    { "prompt": string, "style": string }
+  ]
+}
+
+Business input:
 ${JSON.stringify(lead, null, 2)}
-
-Return ONLY valid JSON that strictly matches the schema.
 `;
 
     /* -------------------------------------------
-      CALL GEMINI
+       CALL GEMINI (NO STRUCTURED MODE)
     ------------------------------------------- */
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
@@ -195,8 +169,8 @@ Return ONLY valid JSON that strictly matches the schema.
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
-            response_mime_type: "application/json",
-            response_schema: geminiSchema,
+            temperature: 0.4,
+            maxOutputTokens: 2048,
           },
         }),
       }
@@ -204,19 +178,29 @@ Return ONLY valid JSON that strictly matches the schema.
 
     const data = await response.json();
 
-    let rawText =
-      data?.candidates?.[0]?.content?.parts?.[0]?.text;
+    /* -------------------------------------------
+       SAFE RESPONSE EXTRACTION
+    ------------------------------------------- */
+    const candidate = data?.candidates?.[0];
 
-    if (!rawText || typeof rawText !== "string") {
+    let rawText =
+      candidate?.content?.parts
+        ?.map((p) => p.text)
+        .join("")
+        ?.trim();
+
+    if (!rawText) {
+      console.error("❌ Gemini raw response:", JSON.stringify(data, null, 2));
       throw new Error("Gemini returned empty or invalid output");
     }
 
     /* -------------------------------------------
-      CLEAN + PARSE JSON
+       CLEAN + PARSE JSON
     ------------------------------------------- */
     rawText = rawText
       .replace(/```json/gi, "")
       .replace(/```/g, "")
+      .replace(/\n+/g, "\n")
       .trim();
 
     let parsed;
@@ -226,14 +210,13 @@ Return ONLY valid JSON that strictly matches the schema.
     } catch (err) {
       return res.status(400).json({
         error: "Invalid Gemini response",
-        details:
-          err instanceof ZodError ? err.errors : err.message,
+        details: err instanceof ZodError ? err.errors : err.message,
         raw: rawText,
       });
     }
 
     /* -------------------------------------------
-      IMAGE PIPELINE (PARALLEL)
+       IMAGE PIPELINE
     ------------------------------------------- */
     const generatedImages = await Promise.all(
       parsed.images.map(async (img) => {
@@ -266,7 +249,7 @@ Return ONLY valid JSON that strictly matches the schema.
     parsed.generated_images = generatedImages.filter(Boolean);
 
     /* -------------------------------------------
-      SUCCESS
+       SUCCESS
     ------------------------------------------- */
     return res.json({ enhanced: parsed });
 
