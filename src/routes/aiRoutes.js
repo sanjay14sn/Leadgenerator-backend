@@ -5,7 +5,7 @@ import { z, ZodError } from "zod";
 const router = express.Router();
 
 /* -------------------------------------------
-   ZOD VALIDATION SCHEMA (RELAXED & SAFE)
+   ZOD VALIDATION SCHEMA
 ------------------------------------------- */
 const EnhancedSchema = z.object({
   hero_title: z.string(),
@@ -28,12 +28,52 @@ const EnhancedSchema = z.object({
 });
 
 /* -------------------------------------------
-   ENV CHECK
+   BANANA POSTER GENERATOR
 ------------------------------------------- */
-console.log("🔐 ENV CHECK", {
-  GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
-  OPENVERSE_ACCESS_TOKEN: !!process.env.OPENVERSE_ACCESS_TOKEN,
-});
+async function generatePosterWithBanana(prompt) {
+  if (!process.env.BANANA_API_KEY || !process.env.BANANA_MODEL_KEY) {
+    console.warn("⚠️ Banana API not configured — skipping poster gen");
+    return null;
+  }
+
+  const res = await fetch("https://api.banana.dev/run", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.BANANA_API_KEY}`,
+    },
+    body: JSON.stringify({
+      modelKey: process.env.BANANA_MODEL_KEY,
+      modelInputs: {
+        prompt: `High quality, bright, vibrant poster. ${prompt}`,
+        steps: 30,
+        guidance_scale: 7.5,
+        width: 1024,
+        height: 1024,
+      },
+    }),
+  });
+
+  if (!res.ok) throw new Error(`Banana API failed (${res.status})`);
+
+  const data = await res.json();
+  const output = data?.modelOutputs?.[0];
+
+  if (!output) return null;
+
+  /* 
+    NORMALIZE — SUPPORT BOTH:
+    -----------------------------------------
+    1️⃣ base64String
+    2️⃣ image_url
+  */
+  return {
+    prompt,
+    type: output.base64String ? "base64" : "url",
+    base64: output.base64String || null,
+    url: output.image_url || null,
+  };
+}
 
 /* -------------------------------------------
    GEMINI → SEARCH KEYWORD
@@ -54,22 +94,21 @@ async function generateSearchKeyword(prompt) {
           {
             parts: [
               {
-                text: `Convert this description into a short stock photo search keyword (2–4 words). Return ONLY the keyword.\n\n${prompt}`,
-              },
-            ],
-          },
-        ],
+                text: `Convert this description into a short stock photo search keyword (2–4 words). Return ONLY the keyword.\n\n${prompt}`
+              }
+            ]
+          }
+        ]
       }),
     }
   );
 
   const data = await res.json();
 
-  const text =
-    data?.candidates?.[0]?.content?.parts
-      ?.map((p) => p.text)
-      .join("")
-      ?.trim();
+  const text = data?.candidates?.[0]?.content?.parts
+    ?.map((p) => p.text)
+    .join("")
+    ?.trim();
 
   if (!text) return "";
 
@@ -82,7 +121,7 @@ async function generateSearchKeyword(prompt) {
 }
 
 /* -------------------------------------------
-   OPENVERSE IMAGE FETCHER
+   OPENVERSE FETCHER
 ------------------------------------------- */
 async function fetchOpenverseImages(query, limit = 5) {
   const headers = {};
@@ -92,40 +131,29 @@ async function fetchOpenverseImages(query, limit = 5) {
   }
 
   const res = await fetch(
-    `https://api.openverse.org/v1/images?q=${encodeURIComponent(
-      query
-    )}&page_size=${limit}`,
+    `https://api.openverse.org/v1/images?q=${encodeURIComponent(query)}&page_size=${limit}`,
     { headers }
   );
 
-  if (!res.ok) {
-    throw new Error(`Openverse failed: ${res.status}`);
-  }
+  if (!res.ok) throw new Error(`Openverse failed: ${res.status}`);
 
   const data = await res.json();
   return data.results || [];
 }
 
 /* -------------------------------------------
-   ENHANCE ROUTE
+   ENHANCE API
 ------------------------------------------- */
 router.post("/enhance", async (req, res) => {
   try {
     if (!process.env.GEMINI_API_KEY) {
-      return res.status(500).json({
-        error: "GEMINI_API_KEY not configured",
-      });
+      return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
     }
 
     const { lead } = req.body;
 
-    if (!lead) {
-      return res.status(400).json({ error: "Lead data required" });
-    }
+    if (!lead) return res.status(400).json({ error: "Lead data required" });
 
-    /* -------------------------------------------
-       GEMINI PROMPT (STRICT & SAFE)
-    ------------------------------------------- */
     const prompt = `
 You are a professional website content generator.
 
@@ -134,9 +162,8 @@ STRICT RULES:
 - No markdown
 - No explanation
 - No code block
-- JSON ONLY
 
-JSON FORMAT:
+FORMAT:
 {
   "hero_title": string,
   "hero_subtitle": string,
@@ -151,13 +178,10 @@ JSON FORMAT:
   ]
 }
 
-Business input:
+Business:
 ${JSON.stringify(lead, null, 2)}
 `;
 
-    /* -------------------------------------------
-       CALL GEMINI (NO STRUCTURED MODE)
-    ------------------------------------------- */
     const response = await fetch(
       "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
       {
@@ -168,39 +192,23 @@ ${JSON.stringify(lead, null, 2)}
         },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.4,
-            maxOutputTokens: 2048,
-          },
+          generationConfig: { temperature: 0.4, maxOutputTokens: 2048 },
         }),
       }
     );
 
     const data = await response.json();
 
-    /* -------------------------------------------
-       SAFE RESPONSE EXTRACTION
-    ------------------------------------------- */
-    const candidate = data?.candidates?.[0];
+    let rawText = data?.candidates?.[0]?.content?.parts
+      ?.map((p) => p.text)
+      .join("")
+      ?.trim();
 
-    let rawText =
-      candidate?.content?.parts
-        ?.map((p) => p.text)
-        .join("")
-        ?.trim();
+    if (!rawText) throw new Error("Gemini returned empty output");
 
-    if (!rawText) {
-      console.error("❌ Gemini raw response:", JSON.stringify(data, null, 2));
-      throw new Error("Gemini returned empty or invalid output");
-    }
-
-    /* -------------------------------------------
-       CLEAN + PARSE JSON
-    ------------------------------------------- */
     rawText = rawText
       .replace(/```json/gi, "")
       .replace(/```/g, "")
-      .replace(/\n+/g, "\n")
       .trim();
 
     let parsed;
@@ -230,8 +238,7 @@ ${JSON.stringify(lead, null, 2)}
           const picked = results[0];
 
           return {
-            prompt: img.prompt,
-            style: img.style,
+            ...img,
             search_query: searchQuery,
             foreign_landing_url: picked.foreign_landing_url,
             image_url: picked.url,
@@ -249,12 +256,26 @@ ${JSON.stringify(lead, null, 2)}
     parsed.generated_images = generatedImages.filter(Boolean);
 
     /* -------------------------------------------
+       POSTER GENERATION (BANANA)
+    ------------------------------------------- */
+    const posterPrompt =
+      parsed.images?.[0]?.prompt || parsed.hero_title || "Business Poster";
+
+    try {
+      const poster = await generatePosterWithBanana(posterPrompt);
+      parsed.poster = poster;
+    } catch (e) {
+      console.error("Poster generation failed:", e);
+      parsed.poster = null;
+    }
+
+    /* -------------------------------------------
        SUCCESS
     ------------------------------------------- */
     return res.json({ enhanced: parsed });
 
   } catch (err) {
-    console.error("❌ ENHANCE API ERROR:", err);
+    console.error("❌ ENHANCE ERROR:", err);
     return res.status(500).json({
       error: "Server error",
       message: err.message,

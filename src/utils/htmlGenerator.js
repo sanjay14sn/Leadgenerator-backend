@@ -10,6 +10,7 @@ export function generateFullHTML(lead) {
   const thumbnail = lead.thumbnail || "https://images.pexels.com/photos/1148998/pexels-photo-1148998.jpeg";
 
   const encodedAddress = encodeURIComponent(address);
+  // Fixed the backticks and semicolon below
   const mapSrc = `https://maps.google.com/maps?q=${encodedAddress}&t=&z=13&ie=UTF8&iwloc=&output=embed`;
 
   const testimonials = lead.testimonials?.length
@@ -146,16 +147,6 @@ export function generateFullHTML(lead) {
       font-size: 30px; margin-bottom: 20px;
     }
 
-    /* Activity Grid */
-    .activity-card {
-      background: var(--bg-cream);
-      border-radius: 28px;
-      overflow: hidden;
-      transition: 0.3s;
-    }
-    .activity-card img { width: 100%; height: 220px; object-fit: cover; }
-    .activity-content { padding: 25px; text-align: left; }
-
     /* Map Section */
     .map-section {
       background: var(--bg-cream);
@@ -211,7 +202,7 @@ export function generateFullHTML(lead) {
   </nav>
 
   <section class="hero animate">
-    <div style="text-align: center; max-width: 600px; margin: 0 auto;" class="md:text-left">
+    <div style="text-align: center; max-width: 600px; margin: 0 auto;">
       <span class="hero-subtitle">${heroSubtitle}</span>
       <h1>${heroTitle}</h1>
       <a href="#" class="cta-btn" style="padding: 16px 40px; font-size: 18px; display: inline-block; margin-top: 20px;">${cta}</a>
@@ -246,7 +237,7 @@ export function generateFullHTML(lead) {
   <section style="padding: 80px 20px; text-align: center;">
     <span class="section-tag">Featured</span>
     <h2 class="section-title">Best Playground Fun</h2>
-    <div class="grid-3 max-w-7xl" style="max-width: 1200px; margin-left: auto; margin-right: auto;">
+    <div class="grid-3" style="max-width: 1200px; margin-left: auto; margin-right: auto;">
       <div class="card animate">
         <div class="icon-box" style="background: #22c55e;">🛡️</div>
         <h3>Safety Zone</h3>

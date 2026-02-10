@@ -1,5 +1,12 @@
 import path from "path";
+import { fileURLToPath } from "url";
 import dotenv from "dotenv";
+
+// Setup __dirname for ES Modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Load .env from the root directory
 dotenv.config({ path: path.resolve(process.cwd(), ".env") });
 
 import express from "express";
@@ -18,6 +25,7 @@ import instagramRoutes from "./src/routes/instagramRoutes.js";
 import deployRoutes from "./src/routes/deployRoutes.js";
 import kvRoutes from "./src/routes/kvRoutes.js";
 import teammateRoutes from "./src/routes/teammateRoutes.js";
+import customPosterRoute from "./src/routes/customPosterRoute.js";
 
 /* MODELS */
 import User from "./src/models/User.js";
@@ -29,13 +37,16 @@ import { runFollowupCron } from "./src/cron/followupChecker.js";
 const app = express();
 
 /* -------------------------------------------------
-   CRITICAL FIXES
+   1. STATIC FILES (CRITICAL FOR POSTERS)
 ------------------------------------------------- */
-app.disable("etag"); // avoid 304 cache issues
+// This line allows http://localhost:5010/posters/image.png to work
+app.use("/posters", express.static(path.join(__dirname, "public/posters")));
 
 /* -------------------------------------------------
-   CORS (FIXED + SAFE)
+   2. MIDDLEWARE & CORS
 ------------------------------------------------- */
+app.disable("etag");
+
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
@@ -46,28 +57,17 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Allow Postman, curl, server-to-server
       if (!origin) return callback(null, true);
+      
+      const isDev = origin.startsWith("http://localhost") || 
+                    origin.startsWith("http://127.0.0.1") || 
+                    origin.startsWith("http://192.168.");
+      const isProd = allowedOrigins.includes(origin);
 
-      // DEV: localhost + LAN
-      if (
-        origin.startsWith("http://localhost") ||
-        origin.startsWith("http://127.0.0.1") ||
-        origin.startsWith("http://192.168.")
-      ) {
+      if (isDev || isProd) {
         return callback(null, true);
       }
-
-      // PROD
-      if (
-        origin === "https://iqsync.in" ||
-        origin === "https://www.iqsync.in"
-      ) {
-        return callback(null, true);
-      }
-
-      console.log("❌ Blocked by CORS:", origin);
-      return callback(null, false); // ✅ NEVER throw
+      return callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -75,20 +75,11 @@ app.use(
   })
 );
 
-// MUST be after cors()
-app.options("*", cors());
-
-// PRE-FLIGHT
-app.options("*", cors());
-
-/* -------------------------------------------------
-   BODY PARSER
-------------------------------------------------- */
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true }));
 
 /* -------------------------------------------------
-   ROUTES
+   3. ROUTES
 ------------------------------------------------- */
 app.use("/api/auth", authRoutes);
 app.use("/api/admin", adminRoutes);
@@ -98,42 +89,40 @@ app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 app.use("/api/teammates", teammateRoutes);
-app.get("/ping", (req, res) => {
-  console.log("🔥 PING HIT");
-  res.send("pong");
-});
 
+// Custom Poster Routes
+app.use("/api", customPosterRoute);
 
-app.get("/", (req, res) => {
-  res.json({ status: "OK", message: "Backend Running 🚀" });
-});
+app.get("/ping", (req, res) => res.send("pong 🏓"));
+app.get("/", (req, res) => res.json({ status: "OK", message: "Backend Running 🚀" }));
 
 /* -------------------------------------------------
-   CREATE SUPER ADMIN
+   4. SUPER ADMIN SEEDING
 ------------------------------------------------- */
 async function createSuperAdmin() {
-  const email = process.env.ADMIN_DEFAULT_EMAIL;
-  const password = process.env.ADMIN_DEFAULT_PASSWORD;
+  try {
+    const email = process.env.ADMIN_DEFAULT_EMAIL;
+    const password = process.env.ADMIN_DEFAULT_PASSWORD;
+    if (!email || !password) return;
 
-  if (!email || !password) return;
+    const exists = await User.findOne({ email });
+    if (exists) return;
 
-  const exists = await User.findOne({ email });
-  if (exists) return;
-
-  const hashed = await bcrypt.hash(password, 10);
-
-  await User.create({
-    email,
-    password: hashed,
-    role: "SUPER_ADMIN",
-    isActive: true,
-  });
-
-  console.log("🎉 Super Admin created:", email);
+    const hashed = await bcrypt.hash(password, 10);
+    await User.create({
+      email,
+      password: hashed,
+      role: "SUPER_ADMIN",
+      isActive: true,
+    });
+    console.log("🎉 Super Admin seeded:", email);
+  } catch (err) {
+    console.error("❌ Failed to seed Admin:", err.message);
+  }
 }
 
 /* -------------------------------------------------
-   SERVER START
+   5. SERVER STARTUP
 ------------------------------------------------- */
 const PORT = process.env.PORT || 5010;
 
@@ -142,14 +131,18 @@ connectDB()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
+      
+      // Start Crons after server is up
+      startInstagramCron();
+      cron.schedule("0 * * * *", runFollowupCron);
+      
+      // OPTIONAL: Automatic cleanup of posters every midnight
+      cron.schedule("0 0 * * *", async () => {
+         console.log("🧹 Running daily poster cleanup...");
+         // Add cleanup logic here if desired
+      });
     });
   })
   .catch((err) => {
-    console.error("❌ Server failed to start", err);
+    console.error("❌ Database connection failed", err);
   });
-
-/* -------------------------------------------------
-   CRONS
-------------------------------------------------- */
-startInstagramCron();
-cron.schedule("0 * * * *", runFollowupCron);

@@ -116,6 +116,7 @@ const leadSchema = new mongoose.Schema(
     cta_title: { type: String, default: "" },
     cta_button: { type: String, default: "" },
     testimonials: { type: Array, default: [] },
+    poster_url: { type: String, default: "" },
 
     web_url: { type: String, default: "" },
     last_published: { type: Date, default: null },
