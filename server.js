@@ -50,8 +50,12 @@ app.disable("etag");
 const allowedOrigins = [
   "http://localhost:3000",
   "http://127.0.0.1:3000",
+  "http://13.48.194.170",
+  "http://13.48.194.170:3000",
   "https://iqsync.in",
   "https://www.iqsync.in",
+  "http://api.iqsync.in",
+  "https://api.iqsync.in"
 ];
 
 app.use(
