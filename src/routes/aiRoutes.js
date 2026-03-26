@@ -2,6 +2,7 @@ import express from "express";
 import fetch from "node-fetch";
 import { z, ZodError } from "zod";
 import Lead from "../models/Lead.js";
+import { generateSiteCode } from "../utils/aiGenerator.js";
 
 const router = express.Router();
 
@@ -83,7 +84,7 @@ async function generateSearchKeyword(prompt) {
   if (!process.env.GEMINI_API_KEY) return "";
 
   const res = await fetch(
-    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+    "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
     {
       method: "POST",
       headers: {
@@ -185,7 +186,7 @@ ${JSON.stringify(lead, null, 2)}
 
     console.log("🚀 Attempting Gemini...");
     const response = await fetch(
-      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent",
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
       {
         method: "POST",
         headers: {
@@ -331,147 +332,10 @@ router.post("/generate-site-code", async (req, res) => {
     console.log("Category:", lead.category);
     console.log("=======================================");
 
-    /* ------------------ PROMPT ------------------ */
-
-    const prompt = `
-You are a world-class senior frontend architect.
-
-Return ONLY valid JSON.
-No markdown.
-No explanation.
-No backticks.
-
-FORMAT:
-{
-  "html": "<!DOCTYPE html>\\n<html>...</html>",
-  "css": "body { ... }"
-}
-
-Business:
-Name: ${lead.name}
-Category: ${lead.category}
-Description: ${lead.description}
-Instructions: ${instructions || "Make it modern, premium, high-converting."}
-`;
-
-    /* ------------------ GEMINI CALL ------------------ */
-
-    async function callGemini(prompt, temp = 0.5) {
-      const models = ["gemini-2.0-flash", "gemini-1.5-pro-latest"];
-
-      for (const model of models) {
-        try {
-          console.log(`⚡ Trying model: ${model}`);
-
-          const response = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`,
-            {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-                "X-goog-api-key": process.env.GEMINI_API_KEY,
-              },
-              body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: {
-                  temperature: temp,
-                  maxOutputTokens: model.includes("flash") ? 8192 : 12000,
-                  responseMimeType: "application/json"
-                }
-              })
-            }
-          );
-
-          const data = await response.json();
-
-          if (!response.ok) {
-            console.warn(`❌ ${model} failed:`, data?.error?.message);
-            continue;
-          }
-
-          console.log("✅ Using model:", model);
-
-          return {
-            text: data?.candidates?.[0]?.content?.parts
-              ?.map(p => p.text)
-              .join("")
-              ?.trim(),
-            modelUsed: model,
-            usage: data?.usageMetadata || null
-          };
-
-        } catch (err) {
-          console.warn(`❌ ${model} crashed.`);
-          continue;
-        }
-      }
-
-      throw new Error("All Gemini models failed.");
-    }
-
-    /* ------------------ CALL AI ------------------ */
-
-    let result = await callGemini(prompt, 0.6);
-
-    if (!result?.text || result.text.length < 50) {
-      console.warn("⚠️ Tiny response. Retrying...");
-      result = await callGemini(prompt, 0.2);
-
-      if (!result?.text || result.text.length < 50) {
-        throw new Error("AI returned empty or incomplete response.");
-      }
-    }
-
-    const rawText = result.text;
-
-    console.log("📜 Raw response length:", rawText.length);
-    console.log("🧠 Model Used:", result.modelUsed);
-
-    if (result.usage) {
-      console.log("📊 Token Usage:", result.usage);
-    }
-
-    /* ------------------ SAFE JSON PARSE ------------------ */
-
-    let parsed;
-
-    try {
-      parsed = JSON.parse(rawText);
-    } catch (err) {
-      console.warn("⚠️ Direct parse failed. Trying extraction...");
-
-      const firstBrace = rawText.indexOf("{");
-      const lastBrace = rawText.lastIndexOf("}");
-
-      if (firstBrace !== -1 && lastBrace !== -1) {
-        const extracted = rawText.substring(firstBrace, lastBrace + 1);
-        parsed = JSON.parse(extracted);
-      } else {
-        throw new Error("No JSON object found in AI response.");
-      }
-    }
-
-    if (!parsed || typeof parsed !== "object") {
-      throw new Error("AI returned invalid JSON object.");
-    }
-
-    /* -------- AUTO STRUCTURE FIXES -------- */
-
-    if (!parsed.html && parsed.HTML) parsed.html = parsed.HTML;
-    if (!parsed.css && parsed.CSS) parsed.css = parsed.CSS;
-
-    // Extract CSS if embedded inside <style>
-    if (!parsed.css && parsed.html?.includes("<style>")) {
-      const styleMatch = parsed.html.match(/<style>([\s\S]*?)<\/style>/);
-      if (styleMatch) {
-        parsed.css = styleMatch[1];
-        parsed.html = parsed.html.replace(styleMatch[0], "");
-      }
-    }
+    const parsed = await generateSiteCode(lead, instructions);
 
     if (!parsed.html || !parsed.css) {
-      console.error("❌ Gemini Returned Structure:", parsed);
-      throw new Error("Invalid JSON structure from AI.");
+      throw new Error("Invalid response from site generator.");
     }
 
     /* ------------------ SAVE TO DB ------------------ */
@@ -501,13 +365,13 @@ Instructions: ${instructions || "Make it modern, premium, high-converting."}
     console.log("=======================================");
     console.log("✅ SITE GENERATED SUCCESSFULLY");
     console.log("🆔 YOUR_LEAD_ID:", leadId);
-    console.log("🌐 Preview URL: http://localhost:5023/preview/" + leadId);
+    console.log(`🌐 Preview URL: http://localhost:${process.env.PORT || 5010}/api/ai/preview/` + leadId);
     console.log("=======================================");
 
     return res.json({
       success: true,
       leadId: leadId,
-      previewUrl: `http://localhost:5023/preview/${leadId}`,
+      previewUrl: `http://localhost:${process.env.PORT || 5010}/api/ai/preview/${leadId}`,
       model: result.modelUsed,
       usage: result.usage,
       html: parsed.html,
@@ -552,4 +416,94 @@ router.get("/preview/:id", async (req, res) => {
     res.status(500).send("Error loading site");
   }
 });
+
+const QuoteItemsSchema = z.object({
+  items: z.array(
+    z.object({
+      description: z.string(),
+      quantity: z.number(),
+      price: z.number(),
+    })
+  ),
+  scope: z.string(),
+});
+
+/* -------------------------------------------
+   GENERATE QUOTE ITEMS (AI)
+------------------------------------------- */
+router.post("/generate-quote-items", async (req, res) => {
+  try {
+    if (!process.env.GEMINI_API_KEY) {
+      return res.status(500).json({ error: "GEMINI_API_KEY not configured" });
+    }
+
+    const { projectType, totalPrice, duration } = req.body;
+
+    if (!projectType || !totalPrice) {
+      return res.status(400).json({ error: "Project type and price required" });
+    }
+
+    const prompt = `
+You are a professional project manager and business strategist.
+
+Input:
+- Project Type: ${projectType}
+- Total Price: ${totalPrice}
+- Duration: ${duration || "Not specified"} days
+
+Task:
+1. Split the Total Price into 4-6 logical project phases (line items).
+2. The sum of all item prices MUST exactly equal the Total Price: ${totalPrice}.
+3. Generate a professional "Project Scope & Deliverables" note.
+
+STRICT RULES:
+- Output ONLY valid JSON
+- No markdown, no explanation
+- No code block symbols
+
+FORMAT:
+{
+  "items": [
+    { "description": string, "quantity": 1, "price": number }
+  ],
+  "scope": string
+}
+`;
+
+    const response = await fetch(
+      "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-goog-api-key": process.env.GEMINI_API_KEY,
+        },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            temperature: 0.5,
+            responseMimeType: "application/json"
+          }
+        }),
+      }
+    );
+
+    const data = await response.json();
+    let rawText = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join("")?.trim();
+
+    if (!rawText) throw new Error("AI returned empty result");
+
+    rawText = rawText.replace(/```json/gi, "").replace(/```/g, "").trim();
+
+    const parsed = JSON.parse(rawText);
+    QuoteItemsSchema.parse(parsed);
+
+    return res.json(parsed);
+
+  } catch (err) {
+    console.error("AI Quote Error:", err);
+    return res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

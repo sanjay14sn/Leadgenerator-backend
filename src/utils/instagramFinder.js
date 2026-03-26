@@ -25,7 +25,7 @@ ${JSON.stringify(business, null, 2)}
         Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "google/gemini-2.0-flash-lite-preview-02-05:free",
+        model: "google/gemini-flash-1.5",
         messages: [{ role: "user", content: prompt }],
       }),
     });

@@ -8,6 +8,7 @@ export async function publishToCloudflareKV(subdomain, html) {
   if (!CF_API_TOKEN || !CF_ACCOUNT_ID || !CF_KV_NAMESPACE_ID) {
     throw new Error("Missing Cloudflare environment values");
   }
+  console.log("🔑 Using KV Namespace:", CF_KV_NAMESPACE_ID);
 
   if (!subdomain || typeof subdomain !== "string") {
     throw new Error("Invalid subdomain");
@@ -21,7 +22,7 @@ export async function publishToCloudflareKV(subdomain, html) {
    * - This key must match what your Worker / Pages expects
    * - We store HTML under the subdomain name
    */
-  const kvKey = subdomain;
+  const kvKey = `sites:${subdomain}`;
 
   console.log("📦 KV Key:", kvKey);
 

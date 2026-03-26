@@ -5,7 +5,7 @@ export async function generateAndUploadImage(prompt, style = "cute pastel illust
   try {
     // 1️⃣ GENERATE IMAGE USING GEMINI 2.0 FLASH
     const aiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateImage?key=${process.env.GEMINI_API_KEY}`,
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateImage?key=${process.env.GEMINI_API_KEY}`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },

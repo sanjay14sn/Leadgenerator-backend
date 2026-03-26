@@ -44,7 +44,7 @@ async function extractPhoneAI(text) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "google/gemini-2.5-flash",
+        model: "google/gemini-flash-1.5",
         messages: [
           {
             role: "user",
@@ -200,7 +200,7 @@ async function scrapeInstagramURL(pageURL, userId, limit = 10) {
         fs.readFileSync("./src/utils/igCookies.json")
       );
       await page.setCookie(...cookies);
-    } catch {}
+    } catch { }
 
     await page.goto(pageURL, { waitUntil: "networkidle2", timeout: 60000 });
     await sleep(2000);

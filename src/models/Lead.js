@@ -26,6 +26,7 @@ const followupSchema = new mongoose.Schema({
       enum: [
          "PENDING",
          "SEEN",
+         "CONTACTED",
          "INTERESTED",
          "NOT_INTERESTED",
          "NOT_REACHABLE",
@@ -143,6 +144,28 @@ const leadSchema = new mongoose.Schema(
 
       next_followup_date: { type: Date, default: null },
       next_followup_note: { type: String, default: "" },
+
+      /* ----------------------------------------------------
+         CAMPAIGN SYSTEM
+      ---------------------------------------------------- */
+      campaign_status: {
+         type: String,
+         enum: ["new", "queued", "processing", "sent", "pending", "error"],
+         default: "new",
+      },
+      campaign_id: {
+         type: mongoose.Schema.Types.ObjectId,
+         ref: "Campaign",
+         default: null,
+      },
+      process_at: { type: Date, default: null },
+      last_error: { type: String, default: "" },
+
+      /* ----------------------------------------------------
+         VISIT TRACKING & SCORING
+      ---------------------------------------------------- */
+      visits: { type: Number, default: 0 },
+      lastVisitedAt: { type: Date, default: null },
 
       createdAt: { type: Date, default: Date.now },
    },

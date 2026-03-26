@@ -26,6 +26,8 @@ import deployRoutes from "./src/routes/deployRoutes.js";
 import kvRoutes from "./src/routes/kvRoutes.js";
 import teammateRoutes from "./src/routes/teammateRoutes.js";
 import customPosterRoute from "./src/routes/customPosterRoute.js";
+import campaignRoutes from "./src/routes/campaignRoutes.js";
+import visitRoutes from "./src/routes/visitRoutes.js";
 
 /* MODELS */
 import User from "./src/models/User.js";
@@ -33,6 +35,7 @@ import User from "./src/models/User.js";
 /* CRONS */
 import { startInstagramCron } from "./src/cron/instagramCron.js";
 import { runFollowupCron } from "./src/cron/followupChecker.js";
+import { startCampaignProcessor } from "./src/utils/campaignProcessor.js";
 
 const app = express();
 
@@ -62,10 +65,10 @@ app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      
-      const isDev = origin.startsWith("http://localhost") || 
-                    origin.startsWith("http://127.0.0.1") || 
-                    origin.startsWith("http://192.168.");
+
+      const isDev = origin.startsWith("http://localhost") ||
+        origin.startsWith("http://127.0.0.1") ||
+        origin.startsWith("http://192.168.");
       const isProd = allowedOrigins.includes(origin);
 
       if (isDev || isProd) {
@@ -93,6 +96,8 @@ app.use("/api/instagram", instagramRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/sites", kvRoutes);
 app.use("/api/teammates", teammateRoutes);
+app.use("/api/campaigns", campaignRoutes);
+app.use("/api/leads", visitRoutes); // Registering /track-visit under /api/leads
 
 // Custom Poster Routes
 app.use("/api", customPosterRoute);
@@ -135,15 +140,16 @@ connectDB()
   .then(() => {
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      
+
       // Start Crons after server is up
       startInstagramCron();
       cron.schedule("0 * * * *", runFollowupCron);
-      
+      startCampaignProcessor();
+
       // OPTIONAL: Automatic cleanup of posters every midnight
       cron.schedule("0 0 * * *", async () => {
-         console.log("🧹 Running daily poster cleanup...");
-         // Add cleanup logic here if desired
+        console.log("🧹 Running daily poster cleanup...");
+        // Add cleanup logic here if desired
       });
     });
   })

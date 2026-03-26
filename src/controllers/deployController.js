@@ -19,6 +19,23 @@
 //     const html = generateFullHTML(lead);
 
 //     // Upload to Cloudflare KV
+//     const handlePublish = async () => {
+//         setIsPublishing(true);
+//         console.log("🚀 Starting publish for ID:", id);
+//         try {
+//             const res = await API.patch(`/deploy/${id}/publish`);
+//             console.log("📨 Publish Response received:", res.data);
+//             if (res.data.success) {
+//                 setShowPublishSuccess(true);
+//             }
+//         } catch (err) {
+//             console.error("🔥 Publish failed error details:", err);
+//             const errMsg = err.response?.data?.message || err.message;
+//             alert(`Failed to publish website: ${errMsg}`);
+//         } finally {
+//             setIsPublishing(false);
+//         }
+//     };
 //     const url = await publishToCloudflareKV(subdomain, html);
 
 //     lead.web_url = url;
@@ -52,13 +69,35 @@ export const publishWebsite = async (req, res) => {
     if (!lead) return res.status(404).json({ message: "Lead not found" });
 
     // SUBDOMAIN
-    const subdomain = generateSubdomain(lead.name);
+    const subdomain = `${generateSubdomain(lead.name)}-${lead._id.toString().slice(-4)}`;
 
-    // HTML
-    const html = generateFullHTML(lead);
+    // 🛠 Determine which HTML to publish
+    let html = "";
+    if (lead.generated_html_code) {
+      console.log("🤖 Using AI-generated code for publication");
+      html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>${lead.name || "Business Website"}</title>
+    <style>
+        ${lead.generated_css_code || ""}
+    </style>
+</head>
+<body>
+    ${lead.generated_html_code}
+</body>
+</html>`;
+    } else {
+      console.log("📄 AI code missing, falling back to static template");
+      html = generateFullHTML(lead);
+    }
 
     // 🌐 Publish Website
+    console.log("🛠 Attempting to publish lead to Cloudflare KV...");
     const url = await publishToCloudflareKV(subdomain, html);
+    console.log("🌍 Successfully published! URL:", url);
 
     // 🎨 Try creating the poster but don't break if it fails
     let posterPath = "";
@@ -74,7 +113,9 @@ export const publishWebsite = async (req, res) => {
 
     // SAVE BOTH
     lead.web_url = url;
-    lead.poster_url = posterPath;
+    if (posterPath) {
+      lead.poster_url = posterPath;
+    }
     await lead.save();
 
     return res.json({

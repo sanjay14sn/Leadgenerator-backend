@@ -7,5 +7,6 @@ kv_namespaces = [
 ]
 
 routes = [
-  { pattern = "*.iqsync.in/*", zone_name = "iqsync.in" }
+  { pattern = "*.iqsync.in/*", zone_name = "iqsync.in" },
+  { pattern = "iqsync.in/*", zone_name = "iqsync.in" }
 ]

@@ -26,7 +26,10 @@ function getRandomKey() {
 async function checkWhatsApp(phone) {
   if (!phone) return false;
 
-  const clean = phone.replace(/\D/g, "");
+  let clean = phone.replace(/\D/g, "");
+  if (clean.startsWith("0") && clean.length === 11) clean = clean.substring(1);
+  if (clean.length === 10) clean = "91" + clean;
+
   const url = `https://api.whatsapp.com/send/?phone=${clean}&text&type=phone_number&app_absent=0`;
 
   try {
@@ -107,7 +110,10 @@ export const trackWhatsAppRedirect = async (req, res) => {
       await lead.save();
     }
 
-    const phone = lead.phone.replace(/\D/g, "");
+    let phone = lead.phone.replace(/\D/g, "");
+    if (phone.startsWith("0") && phone.length === 11) phone = phone.substring(1);
+    if (phone.length === 10) phone = "91" + phone;
+
     return res.redirect(
       `https://wa.me/${phone}?text=${encodeURIComponent(
         "Mam/Sir, here is your sample website."
@@ -138,15 +144,36 @@ export const trackWebsiteOpen = async (req, res) => {
 
 export const updateFollowupStatus = async (req, res) => {
   try {
-    const lead = await Lead.findOneAndUpdate(
-      { _id: req.params.id, user: req.user.id },
-      { "followup.status": req.body.status },
-      { new: true }
-    );
+    const { status: newStatus } = req.body;
 
+    // 1. Fetch current lead
+    const lead = await Lead.findOne({ _id: req.params.id, user: req.user.id });
+    if (!lead) return res.status(404).json({ error: "Lead not found" });
+
+    const oldStatus = lead.followup?.status || "PENDING";
+
+    // 2. Update status
+    lead.followup.status = newStatus;
+
+    // 3. Automation Trigger: PENDING -> CONTACTED
+    if (oldStatus === "PENDING" && newStatus === "CONTACTED") {
+      const tomorrow = new Date();
+      tomorrow.setDate(tomorrow.getDate() + 1);
+
+      lead.next_followup_date = tomorrow;
+      lead.next_followup_note = "Auto-scheduled: Initial contact made";
+
+      lead.followup.history.push({
+        action: "AUTO_FOLLOWUP_CREATED",
+        message: "Status changed to CONTACTED. Follow-up scheduled for tomorrow.",
+        timestamp: new Date()
+      });
+    }
+
+    await lead.save();
     res.json({ success: true, lead });
-  } catch {
-    res.status(500).json({ error: "Status update failed" });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Status update failed" });
   }
 };
 
@@ -292,7 +319,7 @@ export const scrapeLeads = async (req, res) => {
           phone,
           gmap: i.reviews_link,
         });
-      } catch {}
+      } catch { }
 
       const lead = {
         user: req.user.id, // ⭐ VERY IMPORTANT
@@ -339,37 +366,37 @@ export const scrapeLeads = async (req, res) => {
     }
 
 
-// UPSERT USER-WISE (SAFE & STABLE)
-// ✅ SAFE UPSERT — NO FIELD CONFLICTS
-// ✅ SAFE UPSERT — NO FIELD CONFLICTS
-if (leads.length) {
-  const ops = leads.map((l) => ({
-    updateOne: {
-      filter: {
-        phone: l.phone,
-        user: l.user,
-      },
-      update: {
-        $set: {
-          ...l,
-          updatedAt: new Date(),
+    // UPSERT USER-WISE (SAFE & STABLE)
+    // ✅ SAFE UPSERT — NO FIELD CONFLICTS
+    // ✅ SAFE UPSERT — NO FIELD CONFLICTS
+    if (leads.length) {
+      const ops = leads.map((l) => ({
+        updateOne: {
+          filter: {
+            phone: l.phone,
+            user: l.user,
+          },
+          update: {
+            $set: {
+              ...l,
+              updatedAt: new Date(),
+            },
+          },
+          upsert: true,
         },
-      },
-      upsert: true,
-    },
-  }));
+      }));
 
-  await Lead.bulkWrite(ops, { ordered: false });
+      await Lead.bulkWrite(ops, { ordered: false });
 
 
-  const result = await Lead.bulkWrite(ops, { ordered: false });
+      const result = await Lead.bulkWrite(ops, { ordered: false });
 
-  console.log("✅ BulkWrite Result:", {
-    inserted: result.upsertedCount,
-    modified: result.modifiedCount,
-    matched: result.matchedCount,
-  });
-}
+      console.log("✅ BulkWrite Result:", {
+        inserted: result.upsertedCount,
+        modified: result.modifiedCount,
+        matched: result.matchedCount,
+      });
+    }
 
 
     res.json({ message: "Scrape complete", saved: leads.length, leads });
@@ -383,7 +410,14 @@ if (leads.length) {
 ---------------------------------------------------- */
 export const getLeads = async (req, res) => {
   try {
-    const leads = await Lead.find({ user: req.user.id }).sort({
+    const { campaign_id } = req.query;
+    const query = { user: req.user.id };
+
+    if (campaign_id) {
+      query.campaign_id = campaign_id;
+    }
+
+    const leads = await Lead.find(query).sort({
       createdAt: -1,
     });
 
